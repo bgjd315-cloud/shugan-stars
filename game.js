@@ -2,18 +2,18 @@
 const $app = document.getElementById('app');
 const ROUND = 6;
 const GAMES = {
-  port: { name: '萬數大港', tip: '數到一萬', need: 0 },
-  ship: { name: '千里航道', tip: '四位數加減', need: 0 },
-  fact: { name: '倍數工廠', tip: '拆開來乘', need: 0 },
-  mm: { name: '毫米裁縫島', tip: '量得更準', need: 0 },
-  angle: { name: '角角山', tip: '角和長方形', need: 0 },
-  div: { name: '分分海灘', tip: '除法與餘數', need: 0 },
-  rule: { name: '規律花園', tip: '找出規律', need: 0 },
-  frac: { name: '分數烘焙坊', tip: '幾分之幾', need: 0 },
-  circle: { name: '圓圓天文台', tip: '圓心和半徑', need: 0 },
-  area: { name: '面積牧場', tip: '平方公分', need: 15 },
-  deci: { name: '小數碼頭', tip: '認識 0.1', need: 19 },
-  meas: { name: '量量市集', tip: '公升、公斤、時間', need: 12 },
+  port: { name: '萬數大港', tip: '數到一萬', sem: '三上', need: 0 },
+  ship: { name: '千里航道', tip: '四位數加減', sem: '三上', need: 0 },
+  fact: { name: '倍數工廠', tip: '拆開來乘', sem: '三上・三下', need: 0 },
+  mm: { name: '毫米裁縫島', tip: '量得更準', sem: '三上', need: 0 },
+  angle: { name: '角角山', tip: '角和長方形', sem: '三上', need: 0 },
+  div: { name: '分分海灘', tip: '除法與餘數', sem: '三上・三下', need: 0 },
+  rule: { name: '規律花園', tip: '找出規律', sem: '三上', need: 0 },
+  frac: { name: '分數烘焙坊', tip: '幾分之幾', sem: '三上・三下', need: 0 },
+  circle: { name: '圓圓天文台', tip: '圓心和半徑', sem: '三上', need: 0 },
+  area: { name: '面積牧場', tip: '平方公分', sem: '三下', need: 0 },
+  deci: { name: '小數碼頭', tip: '認識 0.1', sem: '三下', need: 0 },
+  meas: { name: '量量市集', tip: '公升、公斤、時間', sem: '三下', need: 0 },
 };
 const availKeys = () => Object.keys(GAMES).filter(k => S.unit >= GAMES[k].need);
 const ROUNDS_TO_SAVE = 3; // 每個地方玩幾回合就把居民救回來
@@ -33,7 +33,9 @@ function load() {
   try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); if (s) return s; } catch (e) {}
   return null;
 }
+const PIECE_KEYS = ['port', 'ship', 'fact', 'mm', 'angle', 'div', 'rule', 'frac', 'circle']; // 九塊碎片的島，集滿才開最後一關
 const S = Object.assign({ stars: 0, unit: 5, sound: true, rec: {}, log: [], opened: false, prog: {}, bossDone: false, bossSeen: false, stamps: {} }, load() || {});
+S.unit = 20; // 全部單元開放
 function save() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) {} }
 const rec = g => S.rec[g] || (S.rec[g] = { lv: 0, up: 0, down: 0 });
 
@@ -146,12 +148,18 @@ function setMsg(html, cls) {
   const m = document.getElementById('msg');
   if (m) { m.className = 'msg ' + (cls || ''); m.innerHTML = html; }
 }
+function semOf(q) { // 這一題屬於哪一學期
+  if (!q) return '';
+  if (['area', 'deci', 'meas'].includes(q.kind)) return '三下';
+  if ((q.kind === 'fact' && q.mode === 'two') || (q.kind === 'div' && ['split', 'missing'].includes(q.mode)) || (q.kind === 'frac' && ['cmp', 'add', 'sub'].includes(q.mode))) return '三下';
+  return '三上';
+}
 function frame(promptHtml, stageHtml, extra) {
   const dots = Array.from({ length: ROUND }, (_, i) => `<i class="${i < R.grades.length ? 'g' + R.grades[i] : i === R.i ? 'now' : ''}"></i>`).join('');
   $app.innerHTML = `
     <div class="top">
       <button class="icon-btn" id="home" aria-label="回小鎮">⌂</button>
-      <div class="dots">${dots}</div>
+      <div class="dots">${dots}</div><span class="sem">${semOf(R.q)}</span>
       <button class="icon-btn" id="say" aria-label="唸題目">🔊</button>
     </div>
     <div class="say-row">${artImg(R.boss ? 'mimi' : R.daily ? 'liang' : STORY[R.game].who, 'say-who')}<div class="prompt" id="prompt">${promptHtml}</div></div>
@@ -286,7 +294,7 @@ function practiceTopics() {
 function viewPractice() {
   const groups = availKeys().map(k => {
     const ts = practiceTopics().filter(t => t[0] === k);
-    return ts.length ? `<h3 class="pg-h">${GAMES[k].name}</h3><div class="pg">${ts.map(t => `<button class="pg-btn" data-g="${t[0]}" data-l="${t[1]}">${nums(t[2])}</button>`).join('')}</div>` : '';
+    return ts.length ? `<h3 class="pg-h">${GAMES[k].name}<span class="sem">${GAMES[k].sem}</span></h3><div class="pg">${ts.map(t => `<button class="pg-btn" data-g="${t[0]}" data-l="${t[1]}"><span class="sem">${t[3] >= 11 ? '三下' : '三上'}</span>${nums(t[2])}</button>`).join('')}</div>` : '';
   }).join('');
   $app.innerHTML = `<div class="top"><button class="icon-btn" id="home" aria-label="回小鎮">⌂</button><h2 class="page-h">練習場</h2></div><p class="tag">想多練哪一個？</p>${groups}`;
   document.getElementById('home').onclick = () => go('');
@@ -819,12 +827,13 @@ function viewTitle() {
 function viewHome() {
   window.scrollTo(0, 0);
   if (!S.opened) { S.opened = true; save(); return comic(OPENING.bg, OPENING.lines, viewHome, { skip: true, last: '出發！' }); }
-  if (S.unit >= 11 && !S.s2Seen) { S.s2Seen = true; save(); return comic(SEASON2.bg, SEASON2.lines, viewHome); }
+  if (S.bossDone && !S.s2Seen) { S.s2Seen = true; save(); return comic(SEASON2.bg, SEASON2.lines, viewHome); }
   const keys = availKeys();
   const saved = k => (S.prog[k] || 0) >= ROUNDS_TO_SAVE;
-  const allSaved = keys.every(saved), nSaved = keys.filter(saved).length;
-  const nextKey = keys.find(k => !saved(k) && S.prog[k]) || keys.find(k => !saved(k));
-  const line = S.bossDone ? '夜空亮了！一萬顆星都在閃。' : allSaved ? '碎片都到齊了，去找萬萬吧！' : nSaved === 0 && !S.prog[nextKey] ? `船長，先去${STORY[nextKey].place}！` : `下一站：${STORY[nextKey].place}，${STORY[nextKey].mission}！`;
+  const allSaved = PIECE_KEYS.every(saved), nSaved = keys.filter(saved).length, nPieces = PIECE_KEYS.filter(saved).length;
+  const bossNow = allSaved && !S.bossDone;
+  const nextKey = bossNow ? null : keys.find(k => !saved(k) && S.prog[k]) || keys.find(k => !saved(k));
+  const line = S.bossDone && !nextKey ? '夜空亮了！一萬顆星都在閃。' : S.bossDone ? `還有小星星迷路，下一站：${STORY[nextKey].place}！` : bossNow ? '碎片都到齊了，去找萬萬吧！' : nSaved === 0 && !S.prog[nextKey] ? `船長，先去${STORY[nextKey].place}！` : `下一站：${STORY[nextKey].place}，${STORY[nextKey].mission}！`;
   const ROW = 150, rows = keys.length + 1, pts = [];
   for (let i = 0; i < rows; i++) pts.push([i % 2 ? 70 : 30, ROW * i + 70]);
   const pathD = pts.map((q, i) => i === 0 ? `M${q[0]} ${q[1]}` : `C${pts[i - 1][0]} ${q[1] - 70} ${q[0]} ${pts[i - 1][1] + 70} ${q[0]} ${q[1]}`).join('');
@@ -833,7 +842,7 @@ function viewHome() {
     const pips = Array.from({ length: ROUNDS_TO_SAVE }, (_, n) => `<i class="${n < pr ? 'on' : ''}"></i>`).join('');
     return `<button class="stop ${i % 2 ? 'right' : 'left'} ${done ? 'done' : ''} ${now ? 'now' : ''}" data-g="${k}" style="top:${ROW * i}px">
       <span class="medal" style="${bgStyle(st.bg)}"><span class="fog f${pr}"></span>${artImg(st.who, 'medal-who')}${done ? '<span class="badge">✓</span>' : ''}</span>
-      <span class="plate"><b>${GAMES[k].name}</b>${now ? `<small>${st.mission}</small>` : ''}<span class="lvl">${pips}</span></span>
+      <span class="plate"><b>${GAMES[k].name}</b><em class="sem">${GAMES[k].sem}</em><span class="lvl">${pips}</span></span>
       ${now ? artImg('liang', 'guide') : ''}
     </button>`;
   };
@@ -848,7 +857,7 @@ function viewHome() {
       ${keys.map(stop).join('')}
       <button class="stop ${keys.length % 2 ? 'right' : 'left'} cave ${allSaved && !S.bossDone ? 'now' : ''}" data-g="boss" ${allSaved ? '' : 'disabled'} style="top:${ROW * keys.length}px">
         <span class="medal" style="${bgStyle(BOSS.bg)}"><span class="fog ${S.bossDone ? 'f3' : allSaved ? 'f1' : 'f0'}"></span>${allSaved ? artImg(S.bossDone ? 'mimi_happy' : 'mimi', 'medal-who') : '<span class="lock">？</span>'}</span>
-        <span class="plate"><b>${S.bossDone ? '和萬萬玩' : '找到萬萬'}</b><small>${allSaved ? (S.bossDone ? '再挑戰一次' : '把碎片拼回去') : `先找齊碎片（${nSaved}/${keys.length}）`}</small></span>
+        <span class="plate"><b>${S.bossDone ? '和萬萬玩' : '找到萬萬'}</b><small>${allSaved ? (S.bossDone ? '再挑戰一次' : '把碎片拼回去') : `先找齊碎片（${nPieces}/9）`}</small></span>
       </button>
     </div>
     <nav class="dock">
@@ -889,9 +898,7 @@ function viewParent() {
   const miss = recentMisses();
   $app.innerHTML = `<div class="parent">
     <h1>家長頁</h1>
-    <h2>學校教到第幾單元（南一）</h2>
-    <select id="unit">${Object.entries(UNITS).map(([k, u]) => `<option value="${k}" ${S.unit === +k ? 'selected' : ''}>${u}</option>`).join('')}</select>
-    <p>題目會跟著這裡開放，還沒教到的島先出二年級學過的基礎題。選到三下才會出現面積牧場、小數碼頭、量量市集。</p>
+    <h2>單元</h2><p>三上、三下所有單元都已開放，孩子可以自由選島。每座島和每一題都有標示是三上或三下。</p>
     <h2>各遊戲狀況</h2>
     <table><tr><th>遊戲</th><th>等級</th><th>紀錄</th></tr>${rows}</table>
     <h2>最近沒答出來的題目</h2>
@@ -902,7 +909,6 @@ function viewParent() {
     <button class="link" id="out">回小鎮</button>
     <p class="note" style="font-size:14px">紀錄只存在這台裝置的瀏覽器，不會傳到網路。題目皆為自編，非課本內容。</p>
   </div>`;
-  document.getElementById('unit').onchange = e => { S.unit = +e.target.value; save(); };
   document.getElementById('snd').onchange = e => { S.sound = e.target.checked; save(); };
   document.getElementById('reset').onclick = () => {
     if (confirm('確定清除所有星星和紀錄？')) { S.stars = 0; S.rec = {}; S.log = []; S.prog = {}; S.opened = false; S.bossDone = false; S.bossSeen = false; S.s2Seen = false; S.stamps = {}; save(); viewParent(); }

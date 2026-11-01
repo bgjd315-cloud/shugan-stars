@@ -418,3 +418,11 @@ body { line-height: 1.75; }
 .map-title .logo.small { font-size: 24px; white-space: nowrap; flex: none; }
 .map-title .star-count { white-space: nowrap; padding: 3px 10px; font-size: 18px; }
 .star-count small { font-size: 12px; }
+
+/* 上下學期標籤 */
+.sem { display: inline-block; font-style: normal; font-size: 13px; line-height: 1.5; padding: 0 7px; border-radius: 99px; background: #e3ecfb; color: #2f5f9e; margin-left: 6px; white-space: nowrap; vertical-align: middle; }
+.sem .bp { font-size: 8px; width: 1.5em; padding-right: .6em; }
+.plate .sem { margin: 2px 0 0; display: table; }
+.stop.right .plate .sem { margin-left: auto; }
+.pg-btn .sem { margin: 0 5px 0 0; }
+.top .sem { margin: 0; flex: none; }
