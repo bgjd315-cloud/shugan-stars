@@ -1,0 +1,937 @@
+// 數感小鎮：畫面與互動
+const $app = document.getElementById('app');
+const ROUND = 6;
+const GAMES = {
+  port: { name: '萬數大港', tip: '數到一萬', need: 0 },
+  ship: { name: '千里航道', tip: '四位數加減', need: 0 },
+  fact: { name: '倍數工廠', tip: '拆開來乘', need: 0 },
+  mm: { name: '毫米裁縫島', tip: '量得更準', need: 0 },
+  angle: { name: '角角山', tip: '角和長方形', need: 0 },
+  div: { name: '分分海灘', tip: '除法與餘數', need: 0 },
+  rule: { name: '規律花園', tip: '找出規律', need: 0 },
+  frac: { name: '分數烘焙坊', tip: '幾分之幾', need: 0 },
+  circle: { name: '圓圓天文台', tip: '圓心和半徑', need: 0 },
+  area: { name: '面積牧場', tip: '平方公分', need: 15 },
+  deci: { name: '小數碼頭', tip: '認識 0.1', need: 19 },
+  meas: { name: '量量市集', tip: '公升、公斤、時間', need: 12 },
+};
+const availKeys = () => Object.keys(GAMES).filter(k => S.unit >= GAMES[k].need);
+const ROUNDS_TO_SAVE = 3; // 每個地方玩幾回合就把居民救回來
+const BOSS_ORDER = ['port', 'ship', 'fact', 'div', 'rule', 'frac'];
+const ART = ['liang', 'liang_cheer', 'liang_think', 'mimi', 'mimi_happy', 'wanwan', 'piece', 'chest', 'sky_dark', 'sky_bright', 'finale', 'seal', 'turtle', 'octopus', 'crab', 'goat', 'otter', 'bee', 'rabbit', 'fox', 'sheep', 'pelican', 'raccoon', 'isl_port', 'isl_ship', 'isl_fact', 'isl_mm', 'isl_angle', 'isl_div', 'isl_rule', 'isl_frac', 'isl_circle', 'isl_area', 'isl_deci', 'isl_meas'];
+const HAS = {}; // 圖還沒收齊時，畫面照樣能玩
+const artUrl = n => `assets/${n}.webp`;
+const artImg = (n, cls) => HAS[n] ? `<img class="${cls || ''}" src="${artUrl(n)}" alt="">` : '';
+const bgStyle = n => HAS[n] ? `background-image:url(${artUrl(n)})` : '';
+function preloadArt() {
+  return Promise.all(ART.map(n => new Promise(ok => { const i = new Image(); i.onload = () => { HAS[n] = true; ok(); }; i.onerror = () => ok(); i.src = artUrl(n); })));
+}
+
+/* ---------- 存檔 ---------- */
+const SAVE_KEY = 'shugan3-v1';
+function load() {
+  try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); if (s) return s; } catch (e) {}
+  return null;
+}
+const S = Object.assign({ stars: 0, unit: 5, sound: true, rec: {}, log: [], opened: false, prog: {}, bossDone: false, bossSeen: false, stamps: {} }, load() || {});
+function save() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) {} }
+const rec = g => S.rec[g] || (S.rec[g] = { lv: 0, up: 0, down: 0 });
+
+/* ---------- 小工具 ---------- */
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const N = x => `<span class="num">${x}</span>`;
+function nums(s) { return String(s).replace(/\d+/g, m => N(m)); } // 文字裡的數字換成數字字型
+const sgn = h => (h > 0 ? '+' : '−') + Math.abs(h);
+let audio;
+function beep(notes) {
+  if (!S.sound) return;
+  try {
+    audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+    notes.forEach(([f, t]) => {
+      const o = audio.createOscillator(), g = audio.createGain();
+      o.type = 'triangle'; o.frequency.value = f;
+      g.gain.setValueAtTime(.12, audio.currentTime + t);
+      g.gain.exponentialRampToValueAtTime(.001, audio.currentTime + t + .22);
+      o.connect(g).connect(audio.destination);
+      o.start(audio.currentTime + t); o.stop(audio.currentTime + t + .24);
+    });
+  } catch (e) {}
+}
+const sfx = { good: () => beep([[523, 0], [659, .1], [784, .2]]), ok: () => beep([[523, 0], [659, .1]]), hop: () => beep([[440, 0]]), retry: () => beep([[330, 0]]) };
+function speak(text) {
+  try {
+    if (!window.speechSynthesis) return;
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text.replace(/<[^>]+>/g, '').replace(/×/g, '乘以').replace(/＋/g, '加').replace(/－/g, '減').replace(/□/g, '多少'));
+    u.lang = 'zh-TW'; u.rate = .9;
+    speechSynthesis.speak(u);
+  } catch (e) {}
+}
+
+/* ---------- 注音：直排在國字右邊，家長頁不加 ---------- */
+const HAN = /[\u4e00-\u9fff]/;
+function bp(r) {
+  let s = r || '', top = '', tone = '';
+  if (s[0] === '˙') { top = '<i class="qing">˙</i>'; s = s.slice(1); }
+  if (/[ˊˇˋ]$/.test(s)) { tone = `<i class="tone">${s.slice(-1)}</i>`; s = s.slice(0, -1); }
+  return `<span class="bp" aria-hidden="true">${top}${[...s].map(x => `<span>${x}</span>`).join('')}${tone}</span>`;
+}
+// 把文字切成一組一組：國字連同注音、緊跟的標點黏在一起，換行才不會讓標點跑到行首
+function zyGroups(text) {
+  const chars = [...text], rd = new Array(chars.length).fill(null);
+  for (let i = 0; i < chars.length; i++) {
+    if (rd[i] || !HAN.test(chars[i])) continue;
+    const hit = ZY_PHRASE.find(([w]) => chars.slice(i, i + [...w].length).join('') === w);
+    if (hit) {
+      let k = 0;
+      [...hit[0]].forEach((c, j) => { if (HAN.test(c)) rd[i + j] = hit[1][k++]; });
+    } else rd[i] = ZY_CHAR[chars[i]] || '';
+  }
+  const out = [];
+  chars.forEach((c, i) => {
+    if (HAN.test(c)) out.push(`<span class="zc">${c}${bp(rd[i])}</span>`);
+    else if (/[，。！？、：；）」⋯…]/.test(c) && out.length && out[out.length - 1].endsWith('</span>')) out[out.length - 1] = out[out.length - 1].replace(/<\/span>$/, esc(c) + '</span>');
+    else out.push(esc(c));
+  });
+  return out;
+}
+function annotate(root) {
+  const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT), nodes = [];
+  while (w.nextNode()) {
+    const n = w.currentNode, el = n.parentElement;
+    if (HAN.test(n.nodeValue) && !el.closest('.zc, .parent, text')) nodes.push(n);
+  }
+  nodes.forEach(n => {
+    const t = document.createElement('template');
+    t.innerHTML = zyGroups(n.nodeValue).join('');
+    n.replaceWith(t.content);
+  });
+}
+const plainText = el => { const c = el.cloneNode(true); c.querySelectorAll('.bp').forEach(b => b.remove()); return c.textContent; };
+
+/* ---------- 回合 ---------- */
+let R = null; // 目前這一回合
+function startRound(game, opts) {
+  const boss = game === 'boss', daily = game === 'daily';
+  const order = boss ? BOSS_ORDER : daily ? dailyOrder() : null;
+  R = { game: order ? order[0] : game, chapter: game, boss, daily, order, fixedLv: opts && opts.lv, i: 0, grades: [], earned: 0, q: null, tries: 0 };
+  nextQ();
+}
+function nextQ() {
+  if (!R) return go('');
+  if (R.i >= ROUND) return endRound();
+  if (R.order) R.game = R.order[R.i];
+  let q, guard = 0;
+  do { q = Logic.gen(R.game, R.fixedLv !== undefined ? R.fixedLv : rec(R.game).lv, S.unit); } while (R.lastKey === JSON.stringify(q) && guard++ < 8);
+  R.lastKey = JSON.stringify(q);
+  R.q = q; R.tries = 0;
+  VIEWS[R.game](q);
+}
+// 一題結束：grade 2 第一次就很棒、1 第二次或差一點、0 沒答出來
+function finish(grade, detail, msgHtml) {
+  const r = rec(R.game);
+  if (R.fixedLv === undefined) Logic.adjust(r, grade, Logic.maxLevel(R.game, S.unit)); // 練習場不動等級
+  R.grades.push(grade); R.earned += grade * 25; S.stars += grade * 25;
+  S.log.push({ g: R.game, lv: r.lv, gr: grade, d: detail, t: Date.now() });
+  if (S.log.length > 300) S.log = S.log.slice(-300);
+  save();
+  if (grade === 2) sfx.good(); else if (grade === 1) sfx.ok();
+  setMsg(msgHtml, grade ? 'good' : 'hint');
+  R.i++;
+  const a = document.getElementById('actions');
+  a.innerHTML = `<button class="btn" id="next">${R.i >= ROUND ? '看成果' : '下一題'}</button>`;
+  document.getElementById('next').onclick = nextQ;
+}
+function setMsg(html, cls) {
+  const m = document.getElementById('msg');
+  if (m) { m.className = 'msg ' + (cls || ''); m.innerHTML = html; }
+}
+function frame(promptHtml, stageHtml, extra) {
+  const dots = Array.from({ length: ROUND }, (_, i) => `<i class="${i < R.grades.length ? 'g' + R.grades[i] : i === R.i ? 'now' : ''}"></i>`).join('');
+  $app.innerHTML = `
+    <div class="top">
+      <button class="icon-btn" id="home" aria-label="回小鎮">⌂</button>
+      <div class="dots">${dots}</div>
+      <button class="icon-btn" id="say" aria-label="唸題目">🔊</button>
+    </div>
+    <div class="say-row">${artImg(R.boss ? 'mimi' : R.daily ? 'liang' : STORY[R.game].who, 'say-who')}<div class="prompt" id="prompt">${promptHtml}</div></div>
+    <div class="stage" id="stage">${stageHtml}</div>
+    <div class="msg" id="msg"></div>
+    ${extra || ''}
+    <div class="actions" id="actions"></div>`;
+  document.getElementById('home').onclick = () => { R = null; go(''); };
+  document.getElementById('say').onclick = () => speak(plainText(document.getElementById('prompt')));
+}
+function endRound() {
+  const ch = R.chapter, boss = R.boss;
+  let beat = null;
+  if (R.daily) S.stamps[today()] = 1;
+  if (boss) { if (!S.bossDone) { S.bossDone = true; S.stars = Math.max(S.stars, 10000); beat = 'ending'; } }
+  else if (STORY[ch] && R.fixedLv === undefined) {
+    const before = S.prog[ch] || 0;
+    if (before < ROUNDS_TO_SAVE) { S.prog[ch] = before + 1; beat = STORY[ch].beats[before + 1]; }
+  }
+  save();
+  const praise = boss ? '你陪萬萬算完了最後一次。' : R.daily ? '今天的任務完成了，蓋一個章！' : R.fixedLv !== undefined ? '多練一次，就更有感覺。' : '這座島又亮了一點。';
+  $app.innerHTML = `<div class="end pop">
+    ${artImg('liang_cheer', 'end-hero')}
+    <h2>夜空多亮了 ${N(R.earned)} 顆星</h2>
+    <p>${praise}</p>
+    <div class="actions" id="endActs"></div></div>`;
+  const a = document.getElementById('endActs');
+  if (beat) {
+    a.innerHTML = '<button class="btn" id="cont">看故事</button>';
+    document.getElementById('cont').onclick = () => {
+      if (beat === 'ending') return playEnding();
+      const n = S.prog[ch], after = () => { R = null; if (n >= ROUNDS_TO_SAVE) return showClue(ch); go(''); };
+      comic(STORY[ch].bg, beat, after);
+    };
+    return;
+  }
+  a.innerHTML = '<button class="btn" id="again">再玩一回</button><button class="btn alt" id="back">回小鎮</button>';
+  document.getElementById('again').onclick = () => startRound(ch, R.fixedLv !== undefined ? { lv: R.fixedLv } : undefined);
+  document.getElementById('back').onclick = () => { R = null; go(''); };
+}
+
+/* ---------- 故事畫面 ---------- */
+function typeInto(el, text) {
+  // 一個字一個字出現；再按一次就全部顯示
+  const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  el.innerHTML = zyGroups(text).map(g => `<span class="${/^\d$/.test(g) ? 'num ' : ''}ch">${g}</span>`).join('');
+  const chars = [...el.children];
+  let i = 0, timer = null;
+  const finish = () => { clearInterval(timer); timer = null; chars.forEach(c => c.classList.add('on')); };
+  if (reduce) finish(); else timer = setInterval(() => { if (i >= chars.length) return finish(); chars[i++].classList.add('on'); }, 42);
+  return { typing: () => timer !== null, finish };
+}
+function comic(bg, lines, then, opts) {
+  let i = 0, typer = null;
+  function next() {
+    if (typer && typer.typing()) return typer.finish();
+    try { speechSynthesis.cancel(); } catch (e) {}
+    if (++i < lines.length) show(); else leave();
+  }
+  function leave() { document.body.classList.remove('in-cine'); then(); }
+  function show() {
+    const [who, name, text, lineBg] = lines[i];
+    const b = lineBg && HAS[lineBg] ? lineBg : bg, misty = b === 'town_fog' || b === 'fog_cave';
+    document.body.classList.add('in-cine');
+    $app.innerHTML = `<div class="cine" id="cine">
+      <div class="cine-blur" style="${bgStyle(b)}"></div>
+      <div class="scene" style="${bgStyle(b)}">${misty ? '<div class="drift d1"></div><div class="drift d2"></div>' : ''}${who ? artImg(who, 'scene-who rise') : ''}</div>
+      <div class="bubble ${who ? '' : 'narr'}">${name ? `<b>${name}</b>` : ''}<p id="line"></p></div>
+      <div class="cine-acts">
+        <button class="icon-btn" id="say" aria-label="唸出來">🔊</button>
+        <button class="btn" id="go">${i + 1 < lines.length ? '繼續' : (opts && opts.last) || '好！'}</button>
+        ${opts && opts.skip ? '<button class="skip" id="skip">跳過</button>' : ''}
+      </div></div>`;
+    typer = typeInto(document.getElementById('line'), text);
+    document.getElementById('say').onclick = e => { e.stopPropagation(); speak(text); };
+    document.getElementById('go').onclick = e => { e.stopPropagation(); next(); };
+    if (opts && opts.skip) document.getElementById('skip').onclick = e => { e.stopPropagation(); leave(); };
+    document.getElementById('cine').onclick = next;
+  }
+  show();
+}
+function playEnding() {
+  let i = 0;
+  (function step() {
+    if (i >= BOSS.ending.length) { R = null; return go(''); }
+    const e = BOSS.ending[i++];
+    comic(e.bg, [e.who], step);
+  })();
+}
+function showClue(ch) {
+  const c = STORY[ch].clue;
+  $app.innerHTML = `<div class="end pop">
+    ${artImg('piece', 'clue-big')}
+    <h2>找到了！</h2><p><b>${c.name}</b><br>${c.text}</p>
+    <div class="actions"><button class="btn" id="ok">收進星星本</button></div></div>`;
+  document.getElementById('ok').onclick = () => go('');
+}
+function viewClues() {
+  $app.innerHTML = `<div class="top"><button class="icon-btn" id="home" aria-label="回小鎮">⌂</button><h2 class="page-h">星星本</h2></div>
+    <p class="tag">碎片上的字，排起來是什麼？</p>
+    <div class="clues">${availKeys().map(k => {
+      const has = (S.prog[k] || 0) >= ROUNDS_TO_SAVE, c = STORY[k].clue;
+      return `<div class="clue ${has ? '' : 'off'}">${has ? artImg('piece', 'clue-img') : '<div class="clue-q">？</div>'}<div><b>${has ? c.name : '還沒找到'}</b><small>${has ? c.text : `幫${STORY[k].whoName}的忙就會找到`}</small></div></div>`;
+    }).join('')}</div>`;
+  document.getElementById('home').onclick = () => go('');
+}
+const today = () => new Date().toLocaleDateString('sv');
+// 每日任務：挑最近最常卡住的遊戲，再混入其他遊戲複習
+function dailyOrder() {
+  const keys = availKeys();
+  const miss = k => S.log.filter(x => x.g === k).slice(-12).filter(x => x.gr < 2).length;
+  const sorted = keys.slice().sort((a, b) => miss(b) - miss(a) || Math.random() - .5);
+  return Logic.shuffle([sorted[0], sorted[0], sorted[1], sorted[1], ...Logic.shuffle(sorted.slice(2)).slice(0, 2)]);
+}
+function practiceTopics() {
+  const u = S.unit, T = [
+    ['port', 1, '數線：幾千幾百', 1], ['port', 2, '讀寫四位數', 1], ['port', 3, '比大小', 1], ['port', 4, '位值換算', 1], ['port', 5, '數線：四位數', 1],
+    ['ship', 1, '加 1999 想成加 2000', 1], ['ship', 2, '減 1999 想成減 2000', 1], ['ship', 3, '算式心算', 2], ['ship', 4, '整百估算', 2],
+    ['fact', 0, '幾十乘以一位數', 3], ['fact', 2, '二位數拆開乘', 3], ['fact', 3, '三位數拆開乘', 3], ['fact', 4, '乘法估算', 3], ['fact', 5, '兩步驟', 14],
+    ['mm', 1, '讀毫米', 4], ['mm', 2, '剪出毫米', 4], ['mm', 3, '公分換毫米', 4], ['mm', 4, '毫米換公分', 4], ['mm', 5, '長度量感', 4],
+    ['angle', 0, '比角的大小', 1], ['angle', 2, '銳角、直角、鈍角', 5], ['angle', 3, '正方形和長方形', 5],
+    ['div', 1, '除法', 6], ['div', 2, '有餘數的除法', 6], ['div', 3, '偶數和奇數', 6], ['div', 5, '先分大的再分小的', 11], ['div', 6, '找出 □', 18],
+    ['rule', 0, '每次多多少', 1], ['rule', 1, '每次少多少', 1], ['rule', 3, '相差會變', 7], ['rule', 4, '花瓣規律', 7],
+    ['frac', 1, '幾分之幾', 8], ['frac', 2, '做出分數', 8], ['frac', 3, '分數累加', 8], ['frac', 4, '同分母比大小', 17], ['frac', 5, '分數加法', 17], ['frac', 6, '分數減法', 17],
+    ['circle', 1, '半徑和直徑', 9], ['circle', 2, '半徑的 2 倍', 9],
+    ['area', 1, '數格子', 15], ['area', 3, '缺一角的面積', 15], ['area', 4, '三角形是一半', 15],
+    ['deci', 1, '幾個 0.1', 19], ['deci', 2, '小數比大小', 19], ['deci', 4, '小數加減', 19],
+    ['meas', 0, '公升和毫升', 12], ['meas', 2, '容量、時間、重量換算', 13],
+  ];
+  return T.filter(t => u >= t[3]);
+}
+function viewPractice() {
+  const groups = availKeys().map(k => {
+    const ts = practiceTopics().filter(t => t[0] === k);
+    return ts.length ? `<h3 class="pg-h">${GAMES[k].name}</h3><div class="pg">${ts.map(t => `<button class="pg-btn" data-g="${t[0]}" data-l="${t[1]}">${nums(t[2])}</button>`).join('')}</div>` : '';
+  }).join('');
+  $app.innerHTML = `<div class="top"><button class="icon-btn" id="home" aria-label="回小鎮">⌂</button><h2 class="page-h">練習場</h2></div><p class="tag">想多練哪一個？</p>${groups}`;
+  document.getElementById('home').onclick = () => go('');
+  document.querySelectorAll('.pg-btn').forEach(b => b.onclick = () => startRound(b.dataset.g, { lv: +b.dataset.l }));
+}
+function enter(ch) {
+  if (ch === 'boss') {
+    if (!S.bossSeen) { S.bossSeen = true; save(); return comic(BOSS.bg, BOSS.intro, () => startRound('boss')); }
+    return startRound('boss');
+  }
+  if (!S.prog[ch]) return comic(STORY[ch].bg, STORY[ch].beats[0], () => startRound(ch));
+  startRound(ch);
+}
+
+/* ---------- 鍵盤 ---------- */
+function keypadHtml() {
+  return `<div class="entry num" id="entry"><span class="blank">？</span></div><div class="keypad">
+    ${[1, 2, 3, 4, 5].map(d => `<button class="num" data-k="${d}">${d}</button>`).join('')}<button data-k="del" aria-label="刪除">⌫</button>
+    ${[6, 7, 8, 9, 0].map(d => `<button class="num" data-k="${d}">${d}</button>`).join('')}<button class="go" data-k="ok" aria-label="確定">✓</button></div>`;
+}
+function bindKeypad(onOk) {
+  let val = '';
+  const show = () => { document.getElementById('entry').innerHTML = val || '<span class="blank">？</span>'; };
+  document.querySelectorAll('.keypad button').forEach(b => {
+    b.onclick = () => {
+      const k = b.dataset.k;
+      if (k === 'del') val = val.slice(0, -1);
+      else if (k === 'ok') { if (val) onOk(+val, () => { val = ''; show(); }); return; }
+      else if (val.length < 5) val = (val + k).replace(/^0+(?=\d)/, '');
+      show();
+    };
+  });
+}
+function lockKeypad() { document.querySelectorAll('.keypad button').forEach(b => { b.disabled = true; b.style.opacity = .35; }); }
+
+/* ---------- 尋寶數線 ---------- */
+const LX0 = 30, LX1 = 610;
+function lineSvg(a, b, s, labels) {
+  const X = v => LX0 + (v - a) / (b - a) * (LX1 - LX0);
+  let ticks = '';
+  for (let v = a; v <= b; v += s) {
+    const big = labels.includes(v) || v % (s * 5) === 0;
+    ticks += `<path d="M${X(v)} ${big ? 90 : 96}v${big ? 26 : 14}" stroke="#33405a" stroke-width="${big ? 3 : 2}"/>`;
+  }
+  const size = labels.length > 6 ? 20 : 27;
+  const text = labels.map(m => `<text x="${X(m)}" y="146" text-anchor="middle" font-size="${size}">${m}</text>`).join('');
+  return `<div class="line-wrap" id="lw"><svg viewBox="0 0 640 160"><g id="seg"></g>
+    <path d="M${LX0} 103H${LX1}" stroke="#33405a" stroke-width="5" stroke-linecap="round"/>${ticks}${text}
+    <g id="truth"></g><g id="pin" style="display:none"></g></svg></div>`;
+}
+function viewLine(q) {
+  if (q.mode === 'read') return viewLineRead(q);
+  let st = { a: q.a, b: q.b, s: q.steps[0], first: true }, stageWrong = 0;
+  const X = v => LX0 + (v - st.a) / (st.b - st.a) * (LX1 - LX0);
+  function labels() {
+    if (!st.first) return [st.a, (st.a + st.b) / 2, st.b];
+    if (!q.labelAll) return q.marks;
+    const out = []; for (let v = q.a; v <= q.b; v += st.s) out.push(v); return out;
+  }
+  function stage() {
+    const exact = q.v % st.s === 0;
+    const prompt = exact ? `貨櫃編號 ${N(q.v)}！<br>點 ${N(q.v)} 的刻度。`
+      : `貨櫃編號 ${N(q.v)}！<br>${st.first ? '它在哪一段？點那一段。' : '它在這一段裡，再找一找。'}`;
+    frame(prompt, lineSvg(st.a, st.b, st.s, labels()) + (st.first ? '' : `<div class="trail">${nums(`放大鏡：${st.a} 到 ${st.b}，一小格是 ${st.s}`)}</div>`));
+    const wrap = document.getElementById('lw');
+    let pick = null, active = true, down = false;
+    const setFrom = e => {
+      const r = wrap.getBoundingClientRect(), x = (e.clientX - r.left) / r.width * 640;
+      const raw = st.a + (Math.max(LX0, Math.min(LX1, x)) - LX0) / (LX1 - LX0) * (st.b - st.a);
+      if (exact) { pick = st.a + Math.round((raw - st.a) / st.s) * st.s; drawPin(X(pick), '#3b82c4'); }
+      else {
+        pick = Math.min(st.a + Math.floor((raw - st.a) / st.s) * st.s, st.b - st.s);
+        document.getElementById('seg').innerHTML = `<rect x="${X(pick)}" y="78" width="${X(pick + st.s) - X(pick)}" height="50" rx="3" fill="#ffd65a"/>`;
+      }
+      document.getElementById('dig').disabled = false;
+    };
+    wrap.onpointerdown = e => { if (active) { down = true; setFrom(e); } };
+    wrap.onpointermove = e => { if (active && down) setFrom(e); };
+    window.onpointerup = () => { down = false; };
+    const acts = document.getElementById('actions');
+    acts.innerHTML = `<button class="btn" id="dig" disabled>${exact ? '放這裡' : '放大看看'}</button>`;
+    const zoom = () => { const a = Math.floor(q.v / st.s) * st.s; st = { a, b: a + st.s, s: st.s / 10, first: false }; stageWrong = 0; stage(); };
+    document.getElementById('dig').onclick = () => {
+      const right = exact ? pick === q.v : pick === Math.floor(q.v / st.s) * st.s;
+      if (right) {
+        if (!exact) { sfx.ok(); return zoom(); }
+        active = false;
+        document.getElementById('pin').innerHTML = `<circle cx="${X(q.v)}" cy="103" r="8" fill="#3b82c4"/>`;
+        drawTruth(X(q.v), q.v);
+        return finish(R.tries === 0 ? 2 : R.tries === 1 ? 1 : 0, 'place', nums(`放對了！就是 ${q.v}！`));
+      }
+      R.tries++; stageWrong++; sfx.retry();
+      const hint = exact ? nums(`你插在 ${pick}，${q.v} 比它${q.v > pick ? '大，再往右' : '小，再往左'}。一小格是 ${st.s}。`)
+        : nums(`這一段是 ${pick} 到 ${pick + st.s}。${q.v} 比 ${q.v > pick ? pick + st.s : pick} ${q.v > pick ? '大，再往右' : '小，再往左'}。`);
+      if (stageWrong < 2) return setMsg(hint, 'hint');
+      active = false;
+      if (exact) {
+        document.getElementById('pin').innerHTML = `<circle cx="${X(pick)}" cy="103" r="8" fill="#3b82c4"/>`;
+        drawTruth(X(q.v), q.v);
+        return finish(0, { wrong: pick, ans: q.v }, nums(`貨櫃在這裡：${q.v}。`));
+      }
+      const a = Math.floor(q.v / st.s) * st.s;
+      document.getElementById('seg').innerHTML = `<rect x="${X(a)}" y="78" width="${X(a + st.s) - X(a)}" height="50" rx="3" fill="#ffd65a"/>`;
+      setMsg(nums(`${q.v} 在 ${a} 到 ${a + st.s} 這一段。`), 'hint');
+      acts.innerHTML = '<button class="btn" id="dig">放大看看</button>';
+      document.getElementById('dig').onclick = zoom;
+    };
+  }
+  stage();
+}
+function viewLineRead(q) {
+  const X = v => LX0 + (v - q.a) / (q.b - q.a) * (LX1 - LX0);
+  frame(`船長的旗子插在這裡，<br>是多少？一小格是 ${N(q.unit)}。`, lineSvg(q.a, q.b, q.unit, q.marks));
+  drawPin(X(q.v), '#d6476b');
+  document.getElementById('actions').innerHTML = `<div class="choices">${q.options.map(o => `<button class="choice num" data-o="${o}">${o}</button>`).join('')}</div>`;
+  document.querySelectorAll('.choice').forEach(b => {
+    b.onclick = () => {
+      const o = +b.dataset.o;
+      if (o === q.v) return finish(R.tries === 0 ? 2 : R.tries === 1 ? 1 : 0, 'read', nums(`對了！就是 ${q.v}。`));
+      R.tries++; b.classList.add('no'); b.disabled = true; sfx.retry();
+      setMsg(nums(`${o} 應該在${o > q.v ? '更右邊' : '更左邊'}。從最近的標記開始，一格一格數。`), 'hint');
+    };
+  });
+}
+function nearestMark(q) {
+  return q.marks.reduce((a, b) => Math.abs(b - q.v) < Math.abs(a - q.v) ? b : a);
+}
+function drawPin(x, color) {
+  const p = document.getElementById('pin'); p.style.display = '';
+  p.innerHTML = `<path d="M${x} 103V34" stroke="${color}" stroke-width="4"/><path d="M${x} 34l34 12-34 12z" fill="${color}"/><circle cx="${x}" cy="103" r="7" fill="${color}"/>`;
+}
+function drawTruth(x, v) {
+  document.getElementById('truth').innerHTML = `<g class="pop" style="transform-box:fill-box;transform-origin:center">${HAS.chest ? `<image href="${artUrl('chest')}" x="${x - 32}" y="30" width="64" height="64"/>` : `<path d="M${x} 103l-13-30h26z" fill="#f5a524"/>`}<text x="${x}" y="26" text-anchor="middle" font-size="28" style="fill:#c9740c">${v}</text></g>`;
+}
+
+/* ---------- 共用：一步一步輸入、選一個 ---------- */
+function stepKeypad(asks, steps, why, doneMsg, detail, onStep) {
+  let step = 0;
+  const ask = () => { const a = document.getElementById('ask'); if (a) a.innerHTML = nums(asks[step]); };
+  ask();
+  bindKeypad((val, clear) => {
+    if (val === steps[step]) {
+      sfx.ok(); clear();
+      if (step < steps.length - 1) { step++; ask(); if (onStep) onStep(step); return setMsg(nums(`對了，是 ${val}。`), 'good'); }
+      lockKeypad();
+      return finish(R.tries === 0 ? 2 : R.tries === 1 ? 1 : 0, detail, nums(doneMsg));
+    }
+    R.tries++; sfx.retry(); clear();
+    if (R.tries === 1) return setMsg(nums(why), 'hint');
+    if (R.tries === 2) return setMsg(nums(`再想一次。${why}`), 'hint');
+    lockKeypad();
+    finish(0, { wrong: val, ans: steps[step] }, nums(`這一步是 ${steps[step]}。${why}`));
+  });
+}
+function pickOne(html, right, why, ok, detail) {
+  document.getElementById('actions').innerHTML = `<div class="choices ${html.length > 3 ? 'wrap' : ''}">${html.map((h, i) => `<button class="choice" data-i="${i}">${h}</button>`).join('')}</div>`;
+  document.querySelectorAll('[data-i]').forEach(b => {
+    b.onclick = () => {
+      if (+b.dataset.i === right) return finish(R.tries === 0 ? 2 : R.tries === 1 ? 1 : 0, detail, nums(ok));
+      R.tries++; b.classList.add('no'); b.disabled = true; sfx.retry();
+      if (R.tries >= 2) { document.querySelectorAll('[data-i]').forEach(x => x.disabled = true); return finish(0, { wrong: b.textContent.slice(0, 12), ans: right }, nums(ok)); }
+      setMsg(nums(why), 'hint');
+    };
+  });
+}
+const numBtn = v => `<span class="num">${v}</span>`;
+
+/* ---------- 一：萬數大港 ---------- */
+function viewPort(q) {
+  if (q.mode === 'place') return viewLine(q);
+  if (q.mode === 'word') {
+    frame(`貨櫃單上寫著<br>「${q.word}」，是哪一個？`, `<div class="fill-text">${q.word}</div>`);
+    return pickOne(q.options.map(numBtn), q.options.indexOf(q.v), '一位一位對：千位、百位、十位、個位，唸到「零」表示那一位沒有。', `對了！${q.word}就是 ${q.v}。`, 'word');
+  }
+  if (q.mode === 'cmp') {
+    frame('哪一邊的貨櫃比較多？', `<div class="vs"><b class="num">${q.l}</b><span>和</span><b class="num">${q.r}</b></div>`);
+    const a = q.l > q.r ? '＞' : q.l < q.r ? '＜' : '＝';
+    return pickOne(['＞', '＝', '＜'].map(numBtn), ['＞', '＝', '＜'].indexOf(a), '從千位開始比，千位一樣再比百位。', `對了！${q.l} ${a} ${q.r}。`, 'cmp');
+  }
+  frame(`${q.text}<br>合起來是多少？`, '<div class="trail" id="ask"></div>', keypadHtml());
+  stepKeypad(['合起來是多少？'], [q.ans], q.why, `對了！就是 ${q.ans}。${q.why}`, 'trade');
+}
+
+/* ---------- 二：千里航道 ---------- */
+function viewShip(q) {
+  if (q.mode === 'est') {
+    frame('出海前先估一估：', `<div class="fill-text num">${esc(q.text)}</div><div class="trail">答案大約是多少？</div>`);
+    return pickOne(q.options.map(numBtn), q.options.indexOf(q.ans), '先把兩個數都想成整百。', `${q.why}大約是 ${q.ans}。`, 'est');
+  }
+  const expr = q.mode === 'expr';
+  frame(expr ? `航線終點是<br>${N(q.expr)} 的答案` : `從 ${N(q.s)} 開到 ${N(q.t)}<br>最少幾段？`,
+    `<p class="frog-now num" id="now">${q.s}</p><div class="trail" id="trail">還沒出發</div>
+     <div class="hops four">${Logic.HOPS.slice(0, 4).map(h => `<button class="up num" data-h="${h}">+${h}</button>`).join('')}${Logic.HOPS.slice(4).reverse().map(h => `<button class="dn num" data-h="${h}">−${-h}</button>`).join('')}</div>`);
+  let pos = q.s, done = false; const path = [];
+  const draw = () => { document.getElementById('now').textContent = pos; document.getElementById('trail').innerHTML = path.length ? nums(path.map(sgn).join(' ') + `（${path.length} 段）`) : '還沒出發'; };
+  const settle = () => {
+    if (pos !== q.t) return false;
+    done = true; document.querySelectorAll('.hops button').forEach(b => { b.disabled = true; b.style.opacity = .35; });
+    const g = path.length <= q.par ? 2 : 1;
+    finish(g, { extra: path.length - q.par, s: q.s, t: q.t }, g === 2 ? nums(`到了！${path.length} 段，已經最短了！`) : nums(`到了！還可以更短：${q.best.map(sgn).join(' ')}（${q.par} 段）。`));
+    return true;
+  };
+  document.querySelectorAll('.hops button').forEach(b => b.onclick = () => {
+    if (done) return;
+    const n = pos + +b.dataset.h;
+    if (n < 0 || n > 11000) return setMsg('開太遠了，換一條航線。', 'hint');
+    pos = n; path.push(+b.dataset.h); sfx.hop(); setMsg(''); draw();
+    if (!expr) settle();
+  });
+  document.getElementById('actions').innerHTML = `<button class="btn alt" id="undo">退一步</button>${expr ? '<button class="btn" id="arrive">到了</button>' : ''}`;
+  document.getElementById('undo').onclick = () => { if (done || !path.length) return; pos -= path.pop(); draw(); };
+  if (expr) document.getElementById('arrive').onclick = () => {
+    if (settle()) return;
+    R.tries++; sfx.retry();
+    if (R.tries === 1) return setMsg(nums(`你開到 ${pos}。再看看算式要加或減多少。`), 'hint');
+    done = true; finish(0, { wrong: pos, ans: q.t }, nums(`${q.expr}＝${q.t}。可以這樣開：${q.best.map(sgn).join(' ')}。`));
+  };
+}
+
+/* ---------- 三：倍數工廠 ---------- */
+function viewFact(q) {
+  if (q.mode === 'est') {
+    frame(`${N(q.a + '×' + q.b)} 大約是多少？`, '<div class="trail">不用算到個位，估一估就好</div>');
+    return pickOne(q.options.map(numBtn), q.options.indexOf(q.ans), '先把被乘數想成整百。', q.why, 'est');
+  }
+  if (q.mode === 'two') {
+    frame(q.head, '<div class="trail" id="ask"></div>', keypadHtml());
+    return stepKeypad(q.asks, q.steps, q.why, `對了！答案是 ${q.steps[q.steps.length - 1]}。`, 'two');
+  }
+  const bars = q.parts.map(p => `<span class="fbar" style="flex:${Math.max(p, q.a * .14)}"><span class="num">${p}</span></span>`).join('');
+  frame(`${N(q.a + '×' + q.b)}<br>拆開來乘，再合起來。`, `<div class="fbars">${bars}</div><div class="trail">${nums(`每一段都乘 ${q.b}`)}</div><div class="trail" id="ask"></div>`, keypadHtml());
+  const asks = q.parts.map(p => `${p}×${q.b}＝？`), steps = q.parts.map(p => p * q.b);
+  if (q.parts.length > 1) { asks.push(`${steps.join('＋')}＝？`); steps.push(q.ans); }
+  stepKeypad(asks, steps, q.why, `對了！${q.a}×${q.b}＝${q.ans}。`, 'split');
+}
+
+/* ---------- 四：毫米裁縫島 ---------- */
+function rulerSvg(range, mm, showBar) {
+  const X = v => 20 + v / range * 600;
+  let t = '';
+  for (let i = 0; i <= range; i++) {
+    const c = i % 10 === 0, f = i % 5 === 0;
+    t += `<path d="M${X(i)} 62v${c ? 30 : f ? 22 : 13}" stroke="#33405a" stroke-width="${c ? 3 : 1.4}"/>`;
+    if (c) t += `<text x="${X(i)}" y="118" text-anchor="middle" font-size="26">${i / 10}</text>`;
+  }
+  return `<div class="line-wrap" id="lw"><svg viewBox="0 0 640 126"><rect id="ribbon" x="${X(0)}" y="26" width="${showBar ? X(mm) - X(0) : 0}" height="30" rx="2" fill="#e47f96"/>
+    <rect x="${X(0) - 8}" y="60" width="${X(range) - X(0) + 16}" height="62" rx="4" fill="#f5deb3" opacity=".45"/>${t}</svg></div>`;
+}
+function viewMm(q) {
+  if (q.mode === 'read') {
+    frame(`這條緞帶多長？<br>答案用${q.unitText}。`, rulerSvg(q.range, q.mm, true) + '<div class="trail" id="ask"></div>', keypadHtml());
+    return stepKeypad([`幾${q.unitText}？（尺上的數字是公分）`], [q.ans], q.unitText === '毫米' ? '大格一格是 1 公分，就是 10 毫米，小格一格是 1 毫米。' : '從 0 開始看，緞帶的尾巴對到幾？', `對了！是 ${q.ans} ${q.unitText}。`, 'read');
+  }
+  if (q.mode === 'cut') {
+    frame(`剪一條 ${N(q.mm)} 毫米的緞帶！<br>拖到正確的刻度。`, rulerSvg(q.range, 0, true));
+    const wrap = document.getElementById('lw'); let pick = 0, down = false;
+    const setFrom = e => {
+      const r = wrap.getBoundingClientRect(), x = (e.clientX - r.left) / r.width * 640;
+      pick = Math.max(0, Math.min(q.range, Math.round((x - 20) / 600 * q.range)));
+      document.getElementById('ribbon').setAttribute('width', pick / q.range * 600);
+      document.getElementById('dig').disabled = false;
+    };
+    wrap.onpointerdown = e => { down = true; setFrom(e); };
+    wrap.onpointermove = e => { if (down) setFrom(e); };
+    window.onpointerup = () => { down = false; };
+    document.getElementById('actions').innerHTML = '<button class="btn" id="dig" disabled>喀嚓</button>';
+    document.getElementById('dig').onclick = () => {
+      if (pick === q.mm) return finish(R.tries === 0 ? 2 : R.tries === 1 ? 1 : 0, 'cut', nums(`剛剛好！${q.mm} 毫米就是 ${Math.floor(q.mm / 10)} 公分 ${q.mm % 10} 毫米。`));
+      R.tries++; sfx.retry();
+      if (R.tries === 1) return setMsg(nums(`這是 ${pick} 毫米，${q.mm > pick ? '還要再長一點' : '太長了'}。`), 'hint');
+      document.getElementById('dig').disabled = true; wrap.onpointerdown = null;
+      document.getElementById('ribbon').setAttribute('width', q.mm / q.range * 600);
+      finish(0, { wrong: pick, ans: q.mm }, nums(`${q.mm} 毫米在這裡：${Math.floor(q.mm / 10)} 大格再 ${q.mm % 10} 小格。`));
+    };
+    return;
+  }
+  if (q.mode === 'to') {
+    frame(`${nums(q.text)}<br>是幾毫米？`, '<div class="trail" id="ask"></div>', keypadHtml());
+    return stepKeypad(['換成毫米'], [q.ans], q.why, `對了！是 ${q.ans} 毫米。`, 'to');
+  }
+  if (q.mode === 'from') {
+    frame(`${N(q.n)} 毫米<br>是幾公分幾毫米？`, '<div class="trail" id="ask"></div>', keypadHtml());
+    return stepKeypad(['幾公分？', '還有幾毫米？'], q.steps, q.why, `對了！${q.steps[0]} 公分 ${q.steps[1]} 毫米。`, 'from');
+  }
+  frame(`${q.text}<br>大約是多少？`, '<div class="trail">想想看真的東西有多大</div>');
+  pickOne(q.options.map(o => nums(o)), q.options.indexOf(q.ans), '1 毫米很小很小，1 公分大約是小指頭的寬。', `大約是 ${q.ans}。`, 'guess');
+}
+
+/* ---------- 五：角角山 ---------- */
+function angleSvg(d, len, tilt) {
+  const cx = 44, cy = 92, rad = a => (a - (tilt || 0)) * Math.PI / 180;
+  const p = a => [cx + len * Math.cos(rad(a)), cy - len * Math.sin(rad(a))];
+  const [x1, y1] = p(0), [x2, y2] = p(d), [a1, b1] = [cx + 20 * Math.cos(rad(0)), cy - 20 * Math.sin(rad(0))], [a2, b2] = [cx + 20 * Math.cos(rad(d)), cy - 20 * Math.sin(rad(d))];
+  return `<svg class="ang" viewBox="-20 -30 180 150"><path d="M${a1} ${b1}A20 20 0 0 0 ${a2} ${b2}" fill="none" stroke="#d6476b" stroke-width="3"/><path d="M${x1} ${y1}L${cx} ${cy}L${x2} ${y2}" fill="none" stroke="#33405a" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+}
+function viewAngle(q) {
+  if (q.mode === 'cmp') {
+    frame('哪一個角比較大？', `<div class="vs">${angleSvg(q.a, q.la)}${angleSvg(q.b, q.lb)}</div>`);
+    return pickOne(['左邊的角', '右邊的角'], q.ans === 'L' ? 0 : 1, '不要看邊多長，看兩條邊張開多少。', `對了！${q.why}`, 'cmp');
+  }
+  if (q.mode === 'kind') {
+    frame('這是什麼角？', `<div class="cake-wrap">${angleSvg(q.d, 85, q.tilt)}</div>`);
+    const ks = ['acute', 'right', 'obtuse'];
+    return pickOne(['銳角', '直角', '鈍角'], ks.indexOf(q.ans), '拿直角來比：比直角小是銳角，比直角大是鈍角。', { acute: '對了！比直角小，是銳角。', right: '對了！剛好是直角。', obtuse: '對了！比直角大，是鈍角。' }[q.ans], 'kind');
+  }
+  const s = q.skew || 0, W = q.w, H = q.h;
+  const pts = `${10 + s},10 ${10 + s + W},10 ${10 + W},${10 + H} 10,${10 + H}`;
+  frame('這個圖形是什麼？', `<div class="cake-wrap"><svg class="ang" viewBox="0 0 ${W + s + 20} ${H + 20}"><polygon points="${pts}" fill="#fde8c8" stroke="#33405a" stroke-width="4"/></svg></div>`);
+  const ks = ['square', 'rect', 'none'];
+  pickOne(['正方形', '長方形', '都不是'], ks.indexOf(q.ans), '四個角都要是直角。再看四個邊是不是一樣長。', { square: '對了！四個角都是直角，四個邊一樣長。', rect: '對了！四個角都是直角，兩雙對邊一樣長。', none: '對了！它的角不是直角，所以都不是。' }[q.ans], 'shape');
+}
+
+/* ---------- 六：分分海灘 ---------- */
+function shellDots(n) { return '<span class="sh"></span>'.repeat(n); }
+function viewDiv(q) {
+  if (q.mode === 'deal') {
+    const sign = q.signless ? `${q.total} 個貝殼，平分給 ${q.b} 個人` : `${q.total}÷${q.b}`;
+    frame(`${N(sign).replace('class="num"', 'class="num small"')}<br>每人幾個？${q.r ? '還剩幾個？' : ''}`, `<div class="pile-c" id="pile"></div><div class="boxes" id="boxes"></div><div class="trade"><button id="deal">每人發一個</button></div><div class="trail" id="ask"></div>`, keypadHtml());
+    let left = q.total, rounds = 0;
+    const draw = () => {
+      document.getElementById('pile').innerHTML = left ? shellDots(left) : '<span class="note">分完了！</span>';
+      document.getElementById('boxes').innerHTML = Array.from({ length: q.b }, () => `<div class="box">${shellDots(rounds)}</div>`).join('');
+      document.getElementById('deal').disabled = left < q.b;
+    };
+    document.getElementById('deal').onclick = () => { if (left >= q.b) { left -= q.b; rounds++; sfx.hop(); draw(); } };
+    draw();
+    const asks = q.r ? ['每人幾個？（商）', '還剩幾個？（餘數）'] : ['每人幾個？'];
+    return stepKeypad(asks, q.steps, '按按鈕真的分分看。分不夠一輪的，就是餘數。', q.r ? `${q.total}÷${q.b}＝${q.q}…${q.r}。` : `對了！${q.b}×${q.q}＝${q.total}。`, 'deal');
+  }
+  if (q.mode === 'odd') {
+    const pairs = Math.floor(q.n / 2), rows = q.n <= 20;
+    frame(`${N(q.n)} 是偶數還是奇數？`, rows ? `<div class="pairs">${'<span class="pair"><i></i><i></i></span>'.repeat(pairs)}${q.n % 2 ? '<span class="pair one"><i></i></span>' : ''}</div>` : `<div class="trail">${nums(`看個位：${q.n % 10}`)}</div>`);
+    return pickOne(['偶數', '奇數'], q.ans === 'even' ? 0 : 1, '兩個兩個一組，剛好分完是偶數；個位是 0、2、4、6、8。', q.ans === 'even' ? '對了！兩個兩個分得完，是偶數。' : '對了！兩個兩個分，會多一個，是奇數。', 'odd');
+  }
+  if (q.mode === 'split') {
+    frame(`${N(q.total + '÷' + q.d)}<br>先分大的，再分小的。`, `<div class="fbars"><span class="fbar" style="flex:3"><span class="num">${q.parts[0]}</span></span><span class="fbar" style="flex:1"><span class="num">${q.parts[1]}</span></span></div><div class="trail" id="ask"></div>`, keypadHtml());
+    const [a, b] = q.parts.map(p => p / q.d);
+    return stepKeypad([`${q.parts[0]}÷${q.d}＝？`, `${q.parts[1]}÷${q.d}＝？`, `${a}＋${b}＝？`], [a, b, q.ans], q.why, `對了！${q.total}÷${q.d}＝${q.ans}。`, 'split');
+  }
+  frame(q.mode === 'check' ? `${N(q.text)}＝${N(q.q)}…${N(q.r)}<br>驗算：${N(q.q + '×' + q.b + '＋' + q.r)} 是多少？` : `□ 是多少？`, `<div class="fill-text num">${q.mode === 'check' ? '' : esc(q.text)}</div><div class="trail" id="ask"></div>`, keypadHtml());
+  stepKeypad([q.mode === 'rule' ? `${q.text}＝？` : q.mode === 'check' ? '算算看' : '□＝？'], [q.ans], q.why, `對了！${q.why}`, q.mode);
+}
+
+/* ---------- 七：規律花園 ---------- */
+function viewRule(q) {
+  if (q.mode === 'grow') {
+    const flower = n => `<span class="flower">${'<i></i>'.repeat(n)}</span>`;
+    frame(`一朵花 ${N(q.unitN)} 片花瓣，<br>${N(q.k)} 朵共有幾片？`, `<div class="pairs">${flower(q.unitN).repeat(3)}<b class="dots">⋯⋯</b></div><table class="seq-t"><tr><th>朵</th><td>1</td><td>2</td><td>3</td><td>${q.k}</td></tr><tr><th>片</th><td>${q.unitN}</td><td>${q.unitN * 2}</td><td>${q.unitN * 3}</td><td>？</td></tr></table><div class="trail" id="ask"></div>`, keypadHtml());
+    return stepKeypad([`${q.k} 朵是幾片？`], [q.ans], q.why, `對了！${q.why}`, 'grow');
+  }
+  frame('花朵排成這樣，<br>下一個數是多少？', `<div class="seq">${q.seq.map(v => `<b class="num">${v}</b>`).join('<span>→</span>')}<span>→</span><b class="num q">？</b></div><div class="trail" id="ask"></div>`, keypadHtml());
+  stepKeypad(['下一個數？'], [q.ans], '先看相鄰兩個數差多少。', `對了！${q.why}`, 'seq');
+}
+
+/* ---------- 八：分數烘焙坊 ---------- */
+const fracHtml = (a, n) => `<span class="frac num"><i>${a}</i><i>${n}</i></span>`;
+function fbar(n, a, id) {
+  return `<div class="fcells" ${id ? `id="${id}"` : ''}>${Array.from({ length: n }, (_, i) => `<button class="fcell ${i < a ? 'on' : ''}" data-c="${i}" aria-label="第 ${i + 1} 塊"></button>`).join('')}</div>`;
+}
+function viewFrac(q) {
+  if (q.mode === 'unit' || q.mode === 'name') {
+    frame(`派平分成幾塊？<br>紅色是幾分之幾個？`, fbar(q.n, q.a));
+    const set = new Set([q.n]); while (set.size < 3) { const x = Logic.ri(2, 12); if (x >= q.a + (q.a > 1 ? 1 : 0)) set.add(x); }
+    const opts = Logic.shuffle([...set]);
+    return pickOne(opts.map(x => fracHtml(q.a, x)), opts.indexOf(q.n), '數數看一共平分成幾塊，那就是分母。', `對了！平分成 ${q.n} 塊，拿 ${q.a} 塊。`, 'name');
+  }
+  if (q.mode === 'make') {
+    frame(`點一點，做出 ${fracHtml(q.a, q.n)} 個派。`, fbar(q.n, 0, 'cells'));
+    const on = new Set();
+    document.querySelectorAll('.fcell').forEach(c => c.onclick = () => { const i = +c.dataset.c; on.has(i) ? on.delete(i) : on.add(i); c.classList.toggle('on'); sfx.hop(); });
+    document.getElementById('actions').innerHTML = '<button class="btn" id="ok">做好了</button>';
+    document.getElementById('ok').onclick = () => {
+      if (on.size === q.a) return finish(R.tries === 0 ? 2 : R.tries === 1 ? 1 : 0, 'make', nums(`對了！分子是 ${q.a}，就是拿 ${q.a} 塊。`));
+      R.tries++; sfx.retry();
+      if (R.tries === 1) return setMsg(nums(`你拿了 ${on.size} 塊。上面的數字是分子，表示拿幾塊。`), 'hint');
+      finish(0, { wrong: on.size, ans: q.a }, nums(`要拿 ${q.a} 塊。`));
+    };
+    return;
+  }
+  if (q.mode === 'accum') {
+    frame(`${N(q.a)} 個 ${fracHtml(1, q.n)} 是多少？`, fbar(q.n, q.a) + '<div class="trail" id="ask"></div>', keypadHtml());
+    return stepKeypad([q.whole ? '是幾個完整的派？（填數字）' : `分子是多少？（分母還是 ${q.n}）`], [q.whole ? 1 : q.a], `一塊一塊數，就和數整數一樣。`, q.whole ? `對了！${q.n} 個 1/${q.n} 就是 1 個派。` : `對了！就是 ${q.a}/${q.n}。`, 'accum');
+  }
+  if (q.mode === 'cmp') {
+    frame('哪一個分數比較大？', `<div class="vs">${fracHtml(q.a, q.n)}<span>和</span>${fracHtml(q.b, q.n)}</div>`);
+    return pickOne(['左邊', '右邊'], q.ans === 'L' ? 0 : 1, '分母一樣，塊的大小一樣，比幾塊就好。', '對了！分母一樣，分子大的比較大。', 'cmp');
+  }
+  const add = q.mode === 'add';
+  frame(`${fracHtml(q.a, q.n)} ${add ? '＋' : '－'} ${fracHtml(q.b, q.n)}<br>分子是多少？`, `<div class="trail">${nums(`分母還是 ${q.n}，只要算幾塊`)}</div><div class="trail" id="ask"></div>`, keypadHtml());
+  stepKeypad(['分子＝？'], [q.ans], `${q.a} 塊 ${add ? '加' : '減'} ${q.b} 塊。`, `對了！答案是 ${q.ans}/${q.n}。`, q.mode);
+}
+
+/* ---------- 九：圓圓天文台 ---------- */
+function viewCircle(q) {
+  if (q.mode === 'center') {
+    frame('點一點，找到圓的正中間。', `<div class="cake-wrap" id="cw"><svg class="ang big" id="cs" viewBox="0 0 200 200"><circle cx="${q.cx}" cy="${q.cy}" r="${q.r}" fill="#dfeafa" stroke="#3b82c4" stroke-width="4"/><g id="mark"></g></svg></div>`);
+    const svg = document.getElementById('cs'); let px = null;
+    svg.onclick = e => { const r = svg.getBoundingClientRect(); px = [(e.clientX - r.left) / r.width * 200, (e.clientY - r.top) / r.height * 200]; document.getElementById('mark').innerHTML = `<circle cx="${px[0]}" cy="${px[1]}" r="5" fill="#d6476b"/>`; document.getElementById('ok').disabled = false; };
+    document.getElementById('actions').innerHTML = '<button class="btn" id="ok" disabled>就是這裡</button>';
+    document.getElementById('ok').onclick = () => {
+      const d = Math.hypot(px[0] - q.cx, px[1] - q.cy);
+      if (d <= q.r * .28) { document.getElementById('mark').innerHTML = `<circle cx="${q.cx}" cy="${q.cy}" r="5" fill="#2f9e6a"/>`; return finish(R.tries === 0 ? 2 : R.tries === 1 ? 1 : 0, 'center', '找到了！這個點到圓周上每一點都一樣遠。'); }
+      R.tries++; sfx.retry();
+      if (R.tries === 1) return setMsg('看看這個點到圓邊的距離，每個方向要一樣長。', 'hint');
+      document.getElementById('mark').innerHTML = `<circle cx="${q.cx}" cy="${q.cy}" r="5" fill="#2f9e6a"/>`;
+      finish(0, { wrong: 'center', ans: 'center' }, '圓心在這裡，到圓周每一點都一樣遠。');
+    };
+    return;
+  }
+  const seg = (turn, type) => {
+    const t = turn * Math.PI / 180, c = 100, r = 80, P = a => [c + r * Math.cos(a), c - r * Math.sin(a)];
+    const [x1, y1] = P(t);
+    const [x2, y2] = type === 'radius' ? [c, c] : type === 'diameter' ? P(t + Math.PI) : P(t + 2);
+    return `<svg class="ang big" viewBox="0 0 200 200"><circle cx="100" cy="100" r="80" fill="#dfeafa" stroke="#3b82c4" stroke-width="4"/><circle cx="100" cy="100" r="4" fill="#33405a"/><path d="M${x1} ${y1}L${x2} ${y2}" stroke="#d6476b" stroke-width="5" stroke-linecap="round"/></svg>`;
+  };
+  if (q.mode === 'name') {
+    frame('紅色的線是什麼？', `<div class="cake-wrap">${seg(q.turn, q.line)}</div>`);
+    const ks = ['radius', 'diameter', 'neither'];
+    return pickOne(['半徑', '直徑', '都不是'], ks.indexOf(q.ans), '看它有沒有碰到圓心：半徑從圓心到圓周，直徑通過圓心。', { radius: '對了！從圓心到圓周，是半徑。', diameter: '對了！通過圓心的直線，是直徑。', neither: '對了！它沒有碰到圓心，都不是。' }[q.ans], 'name');
+  }
+  if (q.mode === 'size') {
+    frame(q.ask === 'd' ? `半徑是 ${N(q.r)} 公分，<br>直徑是幾公分？` : `直徑是 ${N(q.r * 2)} 公分，<br>半徑是幾公分？`, `<div class="cake-wrap">${seg(30, q.ask === 'd' ? 'radius' : 'diameter')}</div><div class="trail" id="ask"></div>`, keypadHtml());
+    return stepKeypad(['幾公分？'], [q.ans], q.why, `對了！${q.why}`, 'size');
+  }
+  frame('哪一條線最長？', `<div class="vs">${seg(q.turn, 'neither')}${seg(q.turn, 'diameter')}</div>`);
+  pickOne(['左邊的線', '右邊的線'], 1, '看哪一條通過圓心。', q.why, 'long');
+}
+
+/* ---------- 十：面積牧場 ---------- */
+function gridSvg(w, h, cut) {
+  const S = 28; let r = '';
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const gone = cut && x >= w - cut.w && y < cut.h;
+    if (!gone) r += `<rect x="${x * S + 2}" y="${y * S + 2}" width="${S}" height="${S}" fill="#bfe3b4" stroke="#3d9970" stroke-width="1.5"/>`;
+  }
+  return `<svg class="grid-a" viewBox="0 0 ${w * S + 4} ${h * S + 4}" style="width:${Math.min(w * S + 4, 300)}px">${r}</svg>`;
+}
+function viewArea(q) {
+  if (q.mode === 'count') {
+    frame(`這塊草地有幾平方公分？<br>一格是 1 平方公分。`, `<div class="cake-wrap">${gridSvg(q.w, q.h)}</div><div class="trail" id="ask"></div>`, keypadHtml());
+    return stepKeypad(['幾平方公分？'], [q.w * q.h], `一排 ${q.w} 格，有 ${q.h} 排。`, `對了！${q.w}×${q.h}＝${q.w * q.h} 平方公分。`, 'count');
+  }
+  if (q.mode === 'same') {
+    frame(`哪一塊面積不是<br>${N(q.a)} 平方公分？`, `<div class="vs wrap">${q.cards.map(c => gridSvg(c.w, c.h)).join('')}</div>`);
+    return pickOne(['第一塊', '第二塊', '第三塊'], q.cards.findIndex(c => !c.same), '每一塊都用「一排幾格×幾排」算算看。', '對了！其他兩塊形狀不同，面積卻一樣。', 'same');
+  }
+  if (q.mode === 'cut') {
+    frame('缺了一角的草地，<br>有幾平方公分？', `<div class="cake-wrap">${gridSvg(q.W, q.H, { w: q.cw, h: q.ch })}</div><div class="trail" id="ask"></div>`, keypadHtml());
+    return stepKeypad(['完整的長方形有幾格？', '缺的那一塊有幾格？', '剩下幾平方公分？'], [q.W * q.H, q.cw * q.ch, q.ans], '先算完整的，再減掉缺的那一塊。', `對了！${q.W * q.H}－${q.cw * q.ch}＝${q.ans}。`, 'cut');
+  }
+  const S = 28, W = q.w * S, H = q.h * S;
+  frame(`長方形切一半變三角形，<br>三角形有幾平方公分？`, `<div class="cake-wrap"><svg class="grid-a" viewBox="0 0 ${W + 4} ${H + 4}" style="width:${Math.min(W + 4, 240)}px"><rect x="2" y="2" width="${W}" height="${H}" fill="none" stroke="#3d9970" stroke-width="2"/><polygon points="2,2 2,${H + 2} ${W + 2},${H + 2}" fill="#bfe3b4" stroke="#3d9970" stroke-width="2"/></svg></div><div class="trail">${nums(`長方形一排 ${q.w} 格，有 ${q.h} 排`)}</div><div class="trail" id="ask"></div>`, keypadHtml());
+  stepKeypad(['長方形有幾平方公分？', '三角形是一半，幾平方公分？'], [q.w * q.h, q.ans], '三角形是長方形的一半。', `對了！${q.w * q.h}÷2＝${q.ans}。`, 'half');
+}
+
+/* ---------- 十一：小數碼頭 ---------- */
+function viewDeci(q) {
+  const d1 = n => (n / 10).toFixed(1);
+  if (q.mode === 'color') {
+    frame(`把 1 平分成 10 份，<br>點出 ${N(d1(q.a))}。`, fbar(10, 0, 'cells'));
+    const on = new Set();
+    document.querySelectorAll('.fcell').forEach(c => c.onclick = () => { const i = +c.dataset.c; on.has(i) ? on.delete(i) : on.add(i); c.classList.toggle('on'); sfx.hop(); });
+    document.getElementById('actions').innerHTML = '<button class="btn" id="ok">好了</button>';
+    document.getElementById('ok').onclick = () => {
+      if (on.size === q.a) return finish(R.tries === 0 ? 2 : R.tries === 1 ? 1 : 0, 'color', nums(`對了！${d1(q.a)} 就是 ${q.a} 個 0.1。`));
+      R.tries++; sfx.retry();
+      if (R.tries === 1) return setMsg('一份是 0.1，算算看要幾份。', 'hint');
+      finish(0, { wrong: on.size, ans: q.a }, nums(`要 ${q.a} 份。`));
+    };
+    return;
+  }
+  if (q.mode === 'count') {
+    frame(`${N(q.text)} 裡面<br>有幾個 ${N('0.1')}？`, '<div class="trail" id="ask"></div>', keypadHtml());
+    return stepKeypad(['幾個？'], [q.ans], '1 裡面有 10 個 0.1。', `對了！${q.text} 是 ${q.ans} 個 0.1。`, 'count');
+  }
+  if (q.mode === 'cmp') {
+    frame('哪一箱比較重？', `<div class="vs"><b class="num">${q.l}</b><span>公斤和</span><b class="num">${q.r}</b></div>`);
+    return pickOne(['左邊', '右邊'], q.ans === 'L' ? 0 : 1, '先比個位，個位一樣再比十分位。', '對了！', 'cmp');
+  }
+  const opts = Logic.uniqueOptions(q.tenths, () => q.tenths + Logic.pick([-10, -2, -1, 1, 2, 10]));
+  frame('算一算：', `<div class="fill-text num">${esc(q.text)}</div>`);
+  pickOne(opts.map(v => numBtn(d1(v))), opts.indexOf(q.tenths), q.why, `對了！${q.why}`, 'calc');
+}
+
+/* ---------- 十二：量量市集 ---------- */
+function viewMeas(q) {
+  if (q.mode === 'to') {
+    frame(`${nums(q.text)}<br>是幾${q.unit}？`, '<div class="trail" id="ask"></div>', keypadHtml());
+    return stepKeypad([`換成${q.unit}`], [q.ans], q.why, `對了！是 ${q.ans} ${q.unit}。`, 'to');
+  }
+  if (q.mode === 'from') {
+    frame(`${nums(q.text)}<br>是幾${q.u1}幾${q.u2}？`, '<div class="trail" id="ask"></div>', keypadHtml());
+    return stepKeypad([`幾${q.u1}？`, `還有幾${q.u2}？`], q.steps, q.why, `對了！${q.steps[0]} ${q.u1} ${q.steps[1]} ${q.u2}。`, 'from');
+  }
+  if (q.mode === 'dial') {
+    const a = q.g / 1000 * 360 * Math.PI / 180, x = 100 + 72 * Math.sin(a), y = 100 - 72 * Math.cos(a);
+    let t = '';
+    for (let i = 0; i < 20; i++) { const b = i * 18; t += `<path d="M100 18v${i % 2 ? 8 : 15}" transform="rotate(${b} 100 100)" stroke="#33405a" stroke-width="${i % 2 ? 1.5 : 3}"/>`; }
+    [0, 250, 500, 750].forEach((v, i) => { const b = i * 90 * Math.PI / 180; t += `<text x="${100 + 60 * Math.sin(b)}" y="${100 - 60 * Math.cos(b) + 6}" text-anchor="middle" font-size="16">${v}</text>`; });
+    frame('秤上的指針指著幾公克？<br>一小格是 50 公克。', `<div class="cake-wrap"><svg class="ang big" viewBox="0 0 200 200"><circle cx="100" cy="100" r="92" fill="#fffdf7" stroke="#d9772b" stroke-width="5"/>${t}<path d="M100 100L${x} ${y}" stroke="#d6476b" stroke-width="4" stroke-linecap="round"/><circle cx="100" cy="100" r="6" fill="#33405a"/></svg></div><div class="trail" id="ask"></div>`, keypadHtml());
+    return stepKeypad(['幾公克？'], [q.ans], '從 0 開始，一小格一小格加 50。', `對了！是 ${q.ans} 公克。`, 'dial');
+  }
+  frame(`${q.rows[q.r]}${q.cols[q.c]}有幾個人來市集？`, `<table class="seq-t"><tr><th></th>${q.cols.map(c => `<th>${c}</th>`).join('')}</tr>${q.rows.map((r, i) => `<tr><th>${r}</th>${q.data[i].map(v => `<td class="num">${v}</td>`).join('')}</tr>`).join('')}</table><div class="trail" id="ask"></div>`, keypadHtml());
+  stepKeypad(['幾個人？'], [q.ans], '先找橫列，再找直行，看交叉的那一格。', `對了！是 ${q.ans} 個人。`, 'table');
+}
+
+const VIEWS = { port: viewPort, ship: viewShip, fact: viewFact, mm: viewMm, angle: viewAngle, div: viewDiv, rule: viewRule, frac: viewFrac, circle: viewCircle, area: viewArea, deci: viewDeci, meas: viewMeas };
+
+/* ---------- 首頁 ---------- */
+let titleShown = false;
+function viewTitle() {
+  titleShown = true;
+  const flies = Array.from({ length: 12 }, (_, i) => `<i style="left:${8 + (i * 37) % 86}%;top:${22 + (i * 53) % 62}%;animation-delay:${(i * .6) % 4}s"></i>`).join('');
+  document.body.classList.add('in-cine');
+  $app.innerHTML = `<div class="title" style="${bgStyle(S.bossDone ? 'finale' : 'sky_dark')}">
+    ${S.bossDone ? '' : '<div class="drift d1"></div><div class="drift d2"></div>'}
+    <div class="flies">${flies}</div>
+    <div class="title-top"><p class="kicker">星星船長出航</p><h1 class="logo">數感星星島</h1></div>
+    ${artImg('liang_cheer', 'title-hero')}
+    <div class="title-bottom">
+      <button class="btn big" id="start">${S.opened ? '繼續冒險' : '開始冒險'}</button>
+      <p class="title-note">${S.opened ? `船長，夜空已經亮了 ${S.stars} 顆星` : '夜空需要一位星星船長'}</p>
+    </div></div>`;
+  document.getElementById('start').onclick = () => {
+    document.body.classList.remove('in-cine');
+    beep([[523, 0], [784, .12]]);
+    viewHome();
+  };
+}
+function viewHome() {
+  window.scrollTo(0, 0);
+  if (!S.opened) { S.opened = true; save(); return comic(OPENING.bg, OPENING.lines, viewHome, { skip: true, last: '出發！' }); }
+  if (S.unit >= 11 && !S.s2Seen) { S.s2Seen = true; save(); return comic(SEASON2.bg, SEASON2.lines, viewHome); }
+  const keys = availKeys();
+  const saved = k => (S.prog[k] || 0) >= ROUNDS_TO_SAVE;
+  const allSaved = keys.every(saved), nSaved = keys.filter(saved).length;
+  const nextKey = keys.find(k => !saved(k) && S.prog[k]) || keys.find(k => !saved(k));
+  const line = S.bossDone ? '夜空亮了！一萬顆星都在閃。' : allSaved ? '碎片都到齊了，去找萬萬吧！' : nSaved === 0 && !S.prog[nextKey] ? `船長，先去${STORY[nextKey].place}！` : `下一站：${STORY[nextKey].place}，${STORY[nextKey].mission}！`;
+  const ROW = 150, rows = keys.length + 1, pts = [];
+  for (let i = 0; i < rows; i++) pts.push([i % 2 ? 70 : 30, ROW * i + 70]);
+  const pathD = pts.map((q, i) => i === 0 ? `M${q[0]} ${q[1]}` : `C${pts[i - 1][0]} ${q[1] - 70} ${q[0]} ${pts[i - 1][1] + 70} ${q[0]} ${q[1]}`).join('');
+  const stop = (k, i) => {
+    const pr = Math.min(S.prog[k] || 0, ROUNDS_TO_SAVE), st = STORY[k], done = pr >= ROUNDS_TO_SAVE, now = k === nextKey && !done;
+    const pips = Array.from({ length: ROUNDS_TO_SAVE }, (_, n) => `<i class="${n < pr ? 'on' : ''}"></i>`).join('');
+    return `<button class="stop ${i % 2 ? 'right' : 'left'} ${done ? 'done' : ''} ${now ? 'now' : ''}" data-g="${k}" style="top:${ROW * i}px">
+      <span class="medal" style="${bgStyle(st.bg)}"><span class="fog f${pr}"></span>${artImg(st.who, 'medal-who')}${done ? '<span class="badge">✓</span>' : ''}</span>
+      <span class="plate"><b>${GAMES[k].name}</b>${now ? `<small>${st.mission}</small>` : ''}<span class="lvl">${pips}</span></span>
+      ${now ? artImg('liang', 'guide') : ''}
+    </button>`;
+  };
+  $app.innerHTML = `
+    <div class="map-bg"><div class="m1" style="${bgStyle('sky_dark')}"></div><div class="m2" style="${bgStyle('sky_bright')};opacity:${S.bossDone ? 1 : nSaved / keys.length * .85}"></div><div class="shade"></div></div>
+    <header class="map-head">
+      <div class="map-title"><h1 class="logo small">星星島</h1><div class="star-count">⭐ ${N(Math.min(S.stars, 10000))}<small> / 10000</small></div></div>
+      <div class="hero-say">${artImg(S.bossDone ? 'liang_cheer' : 'liang', 'hero-liang')}<span>${line}</span></div>
+    </header>
+    <div class="map-trail" style="height:${ROW * rows + 8}px">
+      <svg viewBox="0 0 100 ${ROW * rows}" preserveAspectRatio="none" aria-hidden="true"><path d="${pathD}" fill="none" stroke="#fff6e3" stroke-width="5" stroke-dasharray="3 11" stroke-linecap="round" vector-effect="non-scaling-stroke" opacity=".9"/></svg>
+      ${keys.map(stop).join('')}
+      <button class="stop ${keys.length % 2 ? 'right' : 'left'} cave ${allSaved && !S.bossDone ? 'now' : ''}" data-g="boss" ${allSaved ? '' : 'disabled'} style="top:${ROW * keys.length}px">
+        <span class="medal" style="${bgStyle(BOSS.bg)}"><span class="fog ${S.bossDone ? 'f3' : allSaved ? 'f1' : 'f0'}"></span>${allSaved ? artImg(S.bossDone ? 'mimi_happy' : 'mimi', 'medal-who') : '<span class="lock">？</span>'}</span>
+        <span class="plate"><b>${S.bossDone ? '和萬萬玩' : '找到萬萬'}</b><small>${allSaved ? (S.bossDone ? '再挑戰一次' : '把碎片拼回去') : `先找齊碎片（${nSaved}/${keys.length}）`}</small></span>
+      </button>
+    </div>
+    <nav class="dock">
+      <button id="daily" class="${S.stamps[today()] ? 'stamped' : 'hot'}"><b>${S.stamps[today()] ? '✔' : '★'}</b>今日任務<small>${Object.keys(S.stamps).length} 個章</small></button>
+      <button id="clues"><b>🌟</b>星星本<small>${nSaved} / ${keys.length}</small></button>
+      <button id="practice"><b>✏️</b>練習場<small>自己選</small></button>
+    </nav>`;
+  document.querySelectorAll('[data-g]').forEach(b => b.onclick = () => enter(b.dataset.g));
+  document.getElementById('daily').onclick = () => startRound('daily');
+  document.getElementById('practice').onclick = viewPractice;
+  document.getElementById('clues').onclick = viewClues;
+}
+
+/* ---------- 家長頁 ---------- */
+const UNITS = { 1: '三上1 數到10000', 2: '三上2 四位數的加減', 3: '三上3 乘法', 4: '三上4 幾毫米', 5: '三上5 角、正方形和長方形', 6: '三上6 除法', 7: '三上7 找規律', 8: '三上8 分數', 9: '三上9 圓', 11: '三下1 除法', 12: '三下2 公升和毫升', 13: '三下3 時間', 14: '三下4 兩步驟的計算', 15: '三下5 面積', 16: '三下6 公斤和公克', 17: '三下7 分數的加減', 18: '三下8 乘除的應用', 19: '三下9 小數', 20: '三下10 報讀表格' };
+function summarize(g) {
+  const L = S.log.filter(x => x.g === g), last = L.slice(-30);
+  if (!last.length) return { n: 0, rate: '—', note: '還沒玩' };
+  const first = last.filter(x => x.gr === 2).length, none = last.filter(x => x.gr === 0).length;
+  let note = `最近 ${last.length} 題：第一次就對 ${first} 題，沒答出來 ${none} 題`;
+  if (g === 'line') { const ds = last.filter(x => x.d && x.d.dist !== undefined).map(x => x.d.dist); if (ds.length) note += `；平均差全長的 ${Math.round(ds.reduce((a, b) => a + b, 0) / ds.length)}%`; }
+  if (g === 'frog') { const ex = last.filter(x => x.d && x.d.extra !== undefined); if (ex.length) { note += `；${ex.filter(x => x.d.extra === 0).length}/${ex.length} 題跳到最少`; } }
+  return { n: L.length, note };
+}
+function recentMisses() {
+  return S.log.filter(x => x.gr === 0 && x.d && typeof x.d === 'object').slice(-8).reverse().map(x => {
+    const d = x.d, n = GAMES[x.g].name;
+    if (d.text) return `${n}：${d.text}，答 ${d.wrong}，正解 ${d.ans}`;
+    if (d.l) return `${n}：${d.l} 和 ${d.r}`;
+    if (d.a) return `${n}：每排 ${d.a} 顆、${d.b} 排（${{ count: '數全部', more: '多一排', less: '少一排', split: '切開', pack: '分裝', share: '平分' }[d.m]}），答 ${d.wrong}，正解 ${d.ans}`;
+    if (d.dist !== undefined) return `${n}：差全長 ${d.dist}%`;
+    if (d.ans !== undefined) return `${n}：答 ${d.wrong}，正解 ${d.ans}`;
+    return n;
+  });
+}
+function viewParent() {
+  const rows = Object.entries(GAMES).map(([k, g]) => { const s = summarize(k); return `<tr><td>${g.name}</td><td>${Math.min(rec(k).lv, Logic.maxLevel(k, S.unit)) + 1} / ${Logic.maxLevel(k, S.unit) + 1}</td><td>${s.note}</td></tr>`; }).join('');
+  const miss = recentMisses();
+  $app.innerHTML = `<div class="parent">
+    <h1>家長頁</h1>
+    <h2>學校教到第幾單元（南一）</h2>
+    <select id="unit">${Object.entries(UNITS).map(([k, u]) => `<option value="${k}" ${S.unit === +k ? 'selected' : ''}>${u}</option>`).join('')}</select>
+    <p>題目會跟著這裡開放，還沒教到的島先出二年級學過的基礎題。選到三下才會出現面積牧場、小數碼頭、量量市集。</p>
+    <h2>各遊戲狀況</h2>
+    <table><tr><th>遊戲</th><th>等級</th><th>紀錄</th></tr>${rows}</table>
+    <h2>最近沒答出來的題目</h2>
+    ${miss.length ? `<ul>${miss.map(m => `<li>${esc(m)}</li>`).join('')}</ul>` : '<p>目前沒有。</p>'}
+    <h2>設定</h2>
+    <p><label><input type="checkbox" id="snd" ${S.sound ? 'checked' : ''}> 音效</label></p>
+    <button class="link" id="reset">清除這台裝置的紀錄</button><br>
+    <button class="link" id="out">回小鎮</button>
+    <p class="note" style="font-size:14px">紀錄只存在這台裝置的瀏覽器，不會傳到網路。題目皆為自編，非課本內容。</p>
+  </div>`;
+  document.getElementById('unit').onchange = e => { S.unit = +e.target.value; save(); };
+  document.getElementById('snd').onchange = e => { S.sound = e.target.checked; save(); };
+  document.getElementById('reset').onclick = () => {
+    if (confirm('確定清除所有星星和紀錄？')) { S.stars = 0; S.rec = {}; S.log = []; S.prog = {}; S.opened = false; S.bossDone = false; S.bossSeen = false; S.s2Seen = false; S.stamps = {}; save(); viewParent(); }
+  };
+  document.getElementById('out').onclick = () => go('');
+}
+
+/* ---------- 路由 ---------- */
+function go(h) { if (location.hash.slice(1) === h) route(); else location.hash = h; }
+function route() {
+  window.onpointerup = null;
+  document.body.classList.remove('in-cine');
+  if (location.hash === '#parent') viewParent(); else if (!titleShown) viewTitle(); else viewHome();
+}
+window.addEventListener('hashchange', route);
+new MutationObserver(() => annotate($app)).observe($app, { childList: true, subtree: true });
+// 有新版就自動載入；進度存在瀏覽器裡，不受影響。正在答題時不打斷，下次切回來再檢查
+async function checkUpdate() {
+  if (!window.APP_V || R) return;
+  try {
+    const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
+    if (!r.ok) return;
+    const latest = (await r.text()).trim();
+    if (!/^\d+$/.test(latest) || latest === window.APP_V || R) return;
+    if (sessionStorage.getItem('shugan-updated-to') === latest) return; // 避免快取沒更新時一直重載
+    sessionStorage.setItem('shugan-updated-to', latest);
+    location.replace(location.pathname + '?v=' + latest + location.hash);
+  } catch (e) {}
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(); });
+checkUpdate();
+preloadArt().then(route);
