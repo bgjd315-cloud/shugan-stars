@@ -551,3 +551,16 @@ body { line-height: 1.75; }
 .u-item { display: flex; align-items: center; gap: 10px; text-align: left; background: #fff; border: 2px solid var(--line); border-bottom-width: 4px; border-radius: 12px; padding: 5px 10px; min-height: 52px; font-size: 18px; }
 .u-item .u-e { font-size: 28px; }
 .u-item.no { opacity: .35; }
+
+/* 動手操作 */
+[hidden] { display: none !important; }
+.drag-prot { touch-action: none; user-select: none; cursor: grab; }
+.dial.four { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
+.dc { display: flex; flex-direction: column; align-items: center; border-radius: 9px; padding: 3px; }
+.dc small { font-size: 15px; }
+.dc b { font-size: 30px; line-height: 1.2; }
+.dc button { width: 100%; min-height: 46px; padding: 0; font-size: 22px; background: var(--card); border: 2px solid var(--leaf); color: var(--leaf); border-radius: 9px; font-family: system-ui, sans-serif; }
+.dc button.dn { border-color: var(--grape); color: var(--grape); }
+.pv .hi { outline: 3px solid var(--sun); outline-offset: -3px; background: #ffe680; }
+.tap-c { cursor: pointer; }
+.seq-t td.here { background: #ffd65a; font-weight: 700; }
