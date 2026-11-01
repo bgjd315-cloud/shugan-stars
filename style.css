@@ -426,3 +426,60 @@ body { line-height: 1.75; }
 .stop.right .plate .sem { margin-left: auto; }
 .pg-btn .sem { margin: 0 5px 0 0; }
 .top .sem { margin: 0; flex: none; }
+
+/* 看得到的數學 */
+.pv { border-collapse: collapse; background: #fff; margin: 0 auto; }
+.pv th, .pv td { border: 1.5px solid #c9b98f; padding: 1px 7px; text-align: center; min-width: 30px; }
+.pv th { font-size: 14px; font-weight: 400; }
+.pv td { font-size: 21px; height: 30px; }
+.c0 { background: #fde2e4; } .c1 { background: #dbe9fb; } .c2 { background: #dcf3e3; } .c3 { background: #fff2c9; }
+.choice .pv td { font-size: 17px; height: 24px; } .choice .pv th { font-size: 11px; } .choice .pv th, .choice .pv td { min-width: 20px; padding: 0 3px; }
+.blocks { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; align-items: flex-end; margin-bottom: 6px; max-height: 128px; overflow: hidden; }
+.bgroup { display: flex; flex-wrap: wrap; gap: 2px; max-width: 170px; align-items: flex-end; }
+.bgroup i { display: block; border-radius: 2px; }
+.k1000 { width: 30px; height: 30px; background: #d6476b; box-shadow: 3px -3px 0 #b03456; margin: 3px 3px 0 0; }
+.k100 { width: 15px; height: 15px; background: #3b82c4; }
+.k10 { width: 5px; height: 15px; background: #3d9970; }
+.k1 { width: 5px; height: 5px; background: #f5a524; }
+.route { width: 100%; height: auto; display: block; }
+.route text { font-family: "Trebuchet MS", "Segoe UI", system-ui, sans-serif; font-weight: 700; }
+.odo { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin-top: 4px; }
+.wheel { display: flex; flex-direction: column; align-items: center; border-radius: 10px; padding: 4px 2px; }
+.wheel b { font-size: 30px; line-height: 1.1; }
+.wheel small { font-size: 14px; }
+.wheel button { width: 100%; min-height: 44px; font-size: 16px; padding: 0; background: var(--card); border: 2px solid var(--leaf); color: var(--leaf); border-radius: 9px; }
+.wheel button.dn { border-color: var(--grape); color: var(--grape); }
+.est { display: flex; align-items: center; justify-content: center; gap: 12px; }
+.est-b { display: flex; flex-direction: column; align-items: center; }
+.est-b i { font-style: normal; color: var(--soft); }
+.est-b b { font-size: 20px; } .est-b .near { color: var(--sky); }
+.est em { font-style: normal; font-size: 22px; }
+.lines { display: flex; flex-direction: column; gap: 3px; }
+.lines .fbars .fbar { min-height: 25px; font-size: 14px; background: #eef2f8; border-color: #c5cfdd; color: #9aa4b5; transition: background .2s; }
+.lines .fbar.lit { background: #bcd6f2; border-color: var(--sky); color: var(--ink); font-weight: 700; }
+.person { font-size: 20px; font-family: system-ui, sans-serif; }
+.groups { display: flex; flex-wrap: wrap; gap: 5px; justify-content: center; }
+.seq .hop { font-style: normal; font-size: 13px; color: var(--leaf); background: #e4f6ec; border-radius: 99px; padding: 0 5px; }
+.seq .hop.q { color: var(--warn); background: #fff0cf; }
+.pie { width: 130px; height: 130px; display: block; }
+.vs .pie { width: 112px; height: 112px; }
+.pie-w { display: inline-flex; flex-direction: column; align-items: center; gap: 2px; }
+.tenbars { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; width: 100%; }
+.tenbar { display: grid; grid-template-columns: repeat(10, 1fr); height: 19px; border: 2px solid #c9740c; border-radius: 4px; overflow: hidden; background: #fff; }
+.tenbar i { border-right: 1px solid #e2c79c; display: block; }
+.tenbar i:last-child { border-right: 0; }
+.tenbar i.on { background: #e47f96; }
+.tenbar.alt i.on { background: #6ea8dc; }
+.vs.col { flex-direction: column; align-items: stretch; gap: 6px; }
+.ten-row { display: flex; align-items: center; gap: 8px; }
+.ten-row > b { font-size: 21px; min-width: 40px; }
+.ten-row > span { font-size: 16px; white-space: nowrap; }
+.crates { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; align-items: stretch; }
+.crate { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; min-width: 76px; padding: 5px 6px; background: #fff0cf; border: 2px solid #c9a56a; border-radius: 10px; font-size: 16px; line-height: 1.5; }
+.crate b { font-size: 20px; }
+.crate small { font-size: 13px; color: var(--soft); }
+.crate.small { background: #e7f3e6; border-color: var(--leaf); min-width: 60px; }
+.crate.ghost { background: var(--card); border-style: dashed; display: block; text-align: center; }
+
+.choices.col .choice .pv { margin: 0 auto; }
+.choices.col .choice { max-width: 300px; min-height: 0; padding: 4px; }

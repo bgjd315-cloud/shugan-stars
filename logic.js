@@ -43,9 +43,9 @@
     }
     if (L === 4) { // 位值換算：32 個百是多少
       const t = pick(['百', '十', '千']);
-      if (t === '百') { const n = ri(11, 58); return { kind: 'port', mode: 'trade', text: `${n} 個百`, ans: n * 100, why: `${n} 個百，就是 ${Math.floor(n / 10)} 個千和 ${n % 10} 個百。` }; }
-      if (t === '十') { const n = ri(12, 96); return { kind: 'port', mode: 'trade', text: `${n} 個十`, ans: n * 10, why: `${n} 個十，就是 ${Math.floor(n / 10)} 個百和 ${n % 10} 個十。` }; }
-      const k = ri(1, 8), h = ri(11, 19); return { kind: 'port', mode: 'trade', text: `${k} 個千和 ${h} 個百`, ans: k * 1000 + h * 100, why: `${h} 個百，可以換成 1 個千和 ${h - 10} 個百。` };
+      if (t === '百') { const n = ri(11, 58); return { kind: 'port', mode: 'trade', k: 0, h: n, t: 0, text: `${n} 個百`, ans: n * 100, why: `${n} 個百，就是 ${Math.floor(n / 10)} 個千和 ${n % 10} 個百。` }; }
+      if (t === '十') { const n = ri(12, 96); return { kind: 'port', mode: 'trade', k: 0, h: 0, t: n, text: `${n} 個十`, ans: n * 10, why: `${n} 個十，就是 ${Math.floor(n / 10)} 個百和 ${n % 10} 個十。` }; }
+      const k = ri(1, 8), h = ri(11, 19); return { kind: 'port', mode: 'trade', k, h, t: 0, text: `${k} 個千和 ${h} 個百`, ans: k * 1000 + h * 100, why: `${h} 個百，可以換成 1 個千和 ${h - 10} 個百。` };
     }
     return line(ri(1, 9) * 1000 + ri(1, 9) * 100 + ri(0, 9) * 10 + ri(1, 9), [1000, 100, 10, 1], [0, 5000, 10000]);
   }
@@ -146,7 +146,7 @@
     }
     if (L === 6) { // 三下第 8 單元：乘除互逆
       const x = ri(2, 9), y = ri(2, 9), p = x * y;
-      return pick([{ text: `□×${y}＝${p}`, ans: x, why: `□ 可以用 ${p}÷${y} 算。` }, { text: `${x}×□＝${p}`, ans: y, why: `□ 可以用 ${p}÷${x} 算。` }, { text: `□÷${y}＝${x}`, ans: p, why: `□ 可以用 ${x}×${y} 算。` }, { text: `${p}÷□＝${x}`, ans: y, why: `□ 可以用 ${p}÷${x} 算。` }].map(o => ({ kind: 'div', mode: 'missing', ...o })));
+      return pick([{ text: `□×${y}＝${p}`, ans: x, per: y, n: x, say: `每袋 ${y} 顆，要裝滿 ${p} 顆，要幾袋？`, why: `□ 可以用 ${p}÷${y} 算。` }, { text: `${x}×□＝${p}`, ans: y, per: x, n: y, say: `每袋 ${x} 顆，要裝滿 ${p} 顆，要幾袋？`, why: `□ 可以用 ${p}÷${x} 算。` }, { text: `□÷${y}＝${x}`, ans: p, per: x, n: y, say: `平分給 ${y} 個人，每人 ${x} 顆，原來有幾顆？`, why: `□ 可以用 ${x}×${y} 算。` }, { text: `${p}÷□＝${x}`, ans: y, per: x, n: y, say: `${p} 顆，每人分 ${x} 顆，可以分給幾個人？`, why: `□ 可以用 ${p}÷${x} 算。` }].map(o => ({ kind: 'div', mode: 'missing', ...o })));
     }
     if (L === 0) return { kind: 'div', mode: 'deal', total: b * q, b, q, r: 0, signless: unit < 6, steps: [q] };
     if (L === 1) return { kind: 'div', mode: 'deal', total: b * q, b, q, r: 0, steps: [q] };
@@ -221,9 +221,9 @@
     if (unit >= 16) types.push('g', 'dial');
     if (unit >= 20) types.push('table');
     const t = lv <= 0 ? 'ml' : pick(types), big = ri(1, 5), small = ri(1, 9) * 100 + pick([0, 0, 50]);
-    if (t === 'ml') return Math.random() < 0.5 || lv === 0 ? { kind: 'meas', mode: 'to', text: `${big} 公升 ${small} 毫升`, unit: '毫升', ans: big * 1000 + small, why: `1 公升是 1000 毫升。` } : { kind: 'meas', mode: 'from', text: `${big * 1000 + small} 毫升`, u1: '公升', u2: '毫升', steps: [big, small], why: '每 1000 毫升是 1 公升。' };
-    if (t === 'g') return Math.random() < 0.5 ? { kind: 'meas', mode: 'to', text: `${big} 公斤 ${small} 公克`, unit: '公克', ans: big * 1000 + small, why: '1 公斤是 1000 公克。' } : { kind: 'meas', mode: 'from', text: `${big * 1000 + small} 公克`, u1: '公斤', u2: '公克', steps: [big, small], why: '每 1000 公克是 1 公斤。' };
-    if (t === 'time') { const h = ri(1, 4), m = ri(5, 55); const min = ri(2, 5), s = ri(5, 55); return pick([{ kind: 'meas', mode: 'to', text: `${h} 小時 ${m} 分`, unit: '分', ans: h * 60 + m, why: '1 小時是 60 分鐘。' }, { kind: 'meas', mode: 'to', text: `${min} 分 ${s} 秒`, unit: '秒', ans: min * 60 + s, why: '1 分鐘是 60 秒。' }, { kind: 'meas', mode: 'from', text: `${h * 60 + m} 分`, u1: '小時', u2: '分', steps: [h, m], why: '每 60 分鐘是 1 小時。' }]); }
+    if (t === 'ml') return Math.random() < 0.5 || lv === 0 ? { kind: 'meas', mode: 'to', big, small, per: 1000, u1: '公升', text: `${big} 公升 ${small} 毫升`, unit: '毫升', ans: big * 1000 + small, why: `1 公升是 1000 毫升。` } : { kind: 'meas', mode: 'from', per: 1000, text: `${big * 1000 + small} 毫升`, u1: '公升', u2: '毫升', steps: [big, small], why: '每 1000 毫升是 1 公升。' };
+    if (t === 'g') return Math.random() < 0.5 ? { kind: 'meas', mode: 'to', big, small, per: 1000, u1: '公斤', text: `${big} 公斤 ${small} 公克`, unit: '公克', ans: big * 1000 + small, why: '1 公斤是 1000 公克。' } : { kind: 'meas', mode: 'from', per: 1000, text: `${big * 1000 + small} 公克`, u1: '公斤', u2: '公克', steps: [big, small], why: '每 1000 公克是 1 公斤。' };
+    if (t === 'time') { const h = ri(1, 4), m = ri(5, 55); const min = ri(2, 5), s = ri(5, 55); return pick([{ kind: 'meas', mode: 'to', big: h, small: m, per: 60, u1: '小時', text: `${h} 小時 ${m} 分`, unit: '分', ans: h * 60 + m, why: '1 小時是 60 分鐘。' }, { kind: 'meas', mode: 'to', big: min, small: s, per: 60, u1: '分', text: `${min} 分 ${s} 秒`, unit: '秒', ans: min * 60 + s, why: '1 分鐘是 60 秒。' }, { kind: 'meas', mode: 'from', per: 60, text: `${h * 60 + m} 分`, u1: '小時', u2: '分', steps: [h, m], why: '每 60 分鐘是 1 小時。' }]); }
     if (t === 'dial') { const g = ri(1, 19) * 50; return { kind: 'meas', mode: 'dial', g, ans: g }; }
     const rows = ['一班', '二班', '三班'], cols = ['晴天', '雨天'], data = rows.map(() => cols.map(() => ri(3, 19))), r = ri(0, 2), c = ri(0, 1);
     return { kind: 'meas', mode: 'table', rows, cols, data, r, c, ans: data[r][c] };
