@@ -808,7 +808,7 @@ function viewTitle() {
     ${artImg('liang_cheer', 'title-hero')}
     <div class="title-bottom">
       <button class="btn big" id="start">${S.opened ? '繼續冒險' : '開始冒險'}</button>
-      <p class="title-note">${S.opened ? `船長，夜空已經亮了 ${S.stars} 顆星` : '夜空需要一位星星船長'}</p>
+      <p class="title-note">${S.opened ? `船長，夜空已經亮了 ${Math.min(S.stars, S.bossDone ? 10000 : 9999)} 顆星` : '夜空需要一位星星船長'}</p>
     </div></div>`;
   document.getElementById('start').onclick = () => {
     document.body.classList.remove('in-cine');
@@ -840,7 +840,7 @@ function viewHome() {
   $app.innerHTML = `
     <div class="map-bg"><div class="m1" style="${bgStyle('sky_dark')}"></div><div class="m2" style="${bgStyle('sky_bright')};opacity:${S.bossDone ? 1 : nSaved / keys.length * .85}"></div><div class="shade"></div></div>
     <header class="map-head">
-      <div class="map-title"><h1 class="logo small">星星島</h1><div class="star-count">⭐ ${N(Math.min(S.stars, 10000))}<small> / 10000</small></div></div>
+      <div class="map-title"><h1 class="logo small">星星島</h1><div class="star-count">⭐ ${N(Math.min(S.stars, S.bossDone ? 10000 : 9999))}<small>／10000</small></div></div>
       <div class="hero-say">${artImg(S.bossDone ? 'liang_cheer' : 'liang', 'hero-liang')}<span>${line}</span></div>
     </header>
     <div class="map-trail" style="height:${ROW * rows + 8}px">

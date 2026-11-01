@@ -413,3 +413,8 @@ body { line-height: 1.75; }
 .fcell.on { background: #d6476b; }
 .grid-a { display: block; max-width: 100%; height: auto; }
 .vs.wrap .grid-a { width: 92px !important; }
+
+.map-title { flex-wrap: nowrap; gap: 8px; }
+.map-title .logo.small { font-size: 24px; white-space: nowrap; flex: none; }
+.map-title .star-count { white-space: nowrap; padding: 3px 10px; font-size: 18px; }
+.star-count small { font-size: 12px; }
