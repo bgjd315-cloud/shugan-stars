@@ -503,3 +503,51 @@ body { line-height: 1.75; }
 .fish-card { display: flex; flex-direction: column; gap: 3px; width: 100%; }
 .fish-card b { font-size: 22px; }
 .trail .frac { font-size: 18px; vertical-align: middle; }
+
+/* 單位教室 */
+.lesson-entry { position: relative; z-index: 2; display: flex; align-items: center; gap: 10px; width: 100%; background: rgba(255,253,247,.97); border-radius: 16px; border-bottom: 4px solid #d8c9a6; padding: 8px 14px; margin-bottom: 10px; min-height: 58px; }
+.lesson-entry b { font-size: 21px; flex: 1; text-align: left; }
+.lesson-entry small { font-size: 15px; color: var(--soft); }
+.lessons { display: flex; flex-direction: column; gap: 9px; }
+.lesson { position: relative; display: flex; align-items: center; gap: 12px; text-align: left; background: var(--card); border: 2px solid var(--line); border-bottom-width: 5px; border-radius: 16px; padding: 10px 12px; min-height: 76px; }
+.l-e { font-size: 34px; font-family: system-ui, sans-serif; }
+.l-t { flex: 1; min-width: 0; }
+.l-t b { display: block; font-size: 21px; }
+.l-t small { display: block; font-size: 15px; color: var(--soft); }
+.badge.in { position: static; flex: none; }
+.u-cards { display: flex; flex-direction: column; gap: 8px; }
+.u-card { display: grid; grid-template-columns: 48px 1fr; align-items: center; gap: 2px 8px; text-align: left; background: #fff; border: 2px solid var(--line); border-bottom-width: 4px; border-radius: 12px; padding: 7px 10px; min-height: 58px; }
+.u-card.seen { background: #fff7e0; border-color: var(--sun); }
+.u-e { font-size: 32px; grid-row: span 2; font-family: system-ui, sans-serif; }
+.u-card b { font-size: 21px; }
+.u-t { font-size: 17px; line-height: 1.6; grid-column: 2; }
+.u-bar { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; height: 54px; border: 3px solid #a9702a; border-radius: 8px; overflow: hidden; background: #fff; }
+.u-bar i { border-right: 1px solid #e2c79c; display: block; transition: background .15s; }
+.u-bar i:last-child { border-right: 0; }
+.u-bar i.on { background: #e8a35c; }
+.u-bottle { display: flex; flex-direction: column-reverse; width: 92px; height: 170px; margin: 0 auto; border: 3px solid var(--sky); border-radius: 12px 12px 8px 8px; overflow: hidden; background: #fff; }
+.u-bottle i { flex: 1; display: block; border-top: 1px solid #cfe0f3; transition: background .15s; }
+.u-bottle i.on { background: #8fc1ee; }
+.u-count { text-align: center; font-size: 21px; margin: 6px 0; }
+.u-count b { font-size: 34px; color: var(--berry); }
+.u-tiles { display: grid; gap: 3px; max-width: 240px; margin: 0 auto; }
+.u-tile { aspect-ratio: 1; background: #fff; border: 2px solid var(--leaf); border-radius: 4px; padding: 0; }
+.u-tile.on { background: #bfe3b4; }
+.u-big { text-align: center; font-size: 62px; line-height: 1.25; font-family: system-ui, sans-serif; }
+.u-sum { display: flex; flex-wrap: wrap; gap: 6px 14px; justify-content: center; font-size: 20px; }
+
+/* 單位例子與練習 */
+.u-ex { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
+.u-ex span { font-size: 16px; }
+.lesson-row { display: flex; gap: 6px; align-items: stretch; }
+.lesson-row .lesson { flex: 1; min-width: 0; }
+.drill-btn { flex: none; width: 74px; background: var(--leaf); color: #fff; border-radius: 16px; border-bottom: 4px solid #2c7a56; font-size: 18px; }
+.u-slots { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 10px; }
+.u-slot { min-height: 74px; border: 2px dashed var(--line); border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 28px; font-family: system-ui, sans-serif; }
+.u-slot.on { border-style: solid; border-color: var(--good); background: #e7f3e6; }
+.u-slot b { color: var(--line); }
+.u-slot small { font-size: 13px; }
+.u-items { display: flex; flex-direction: column; gap: 6px; }
+.u-item { display: flex; align-items: center; gap: 10px; text-align: left; background: #fff; border: 2px solid var(--line); border-bottom-width: 4px; border-radius: 12px; padding: 5px 10px; min-height: 52px; font-size: 18px; }
+.u-item .u-e { font-size: 28px; }
+.u-item.no { opacity: .35; }

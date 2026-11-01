@@ -115,9 +115,8 @@
     if (L === 2) { const mm = ri(11, 58); return { kind: 'mm', mode: 'cut', mm, range: 60 }; }
     if (L === 3) { const c = ri(2, 15), m = ri(1, 9); return { kind: 'mm', mode: 'to', c, m, ans: c * 10 + m, text: `${c} 公分 ${m} 毫米`, why: `1 公分是 10 毫米，${c} 公分就是 ${c * 10} 毫米，再加 ${m} 毫米。` }; }
     if (L === 4) { const n = ri(23, 159); return { kind: 'mm', mode: 'from', n, steps: [Math.floor(n / 10), n % 10], why: `每 10 毫米是 1 公分，${n} 毫米是 ${Math.floor(n / 10)} 公分和 ${n % 10} 毫米。` }; }
-    const items = [['一枚十元硬幣的厚度', 2, '毫米'], ['一元硬幣的寬度', 20, '毫米'], ['一枝新鉛筆的長度', 18, '公分'], ['一隻小螞蟻的長度', 4, '毫米'], ['數學課本的寬度', 19, '公分'], ['一張信用卡的寬度', 85, '毫米']];
-    const [t, n, u] = pick(items), other = u === '毫米' ? '公分' : '毫米';
-    return { kind: 'mm', mode: 'guess', text: t, ans: `${n} ${u}`, options: shuffle([`${n} ${u}`, `${n} ${other}`, `${n * 10 > 200 ? n : n * 10} ${u === '毫米' ? '公分' : '公分'}`].filter((v, i, a) => a.indexOf(v) === i)) };
+    const u = unitQuestion('len');
+    return { kind: 'mm', mode: 'guess', text: u.q, e: u.e, ans: u.a, options: shuffle(u.opts), why: u.why };
   }
 
   /* ---------- 五：角角山 ---------- */
@@ -194,6 +193,7 @@
 
   /* ---------- 十：面積牧場（三下第 5 單元） ---------- */
   function genArea(lv) {
+    if (Math.random() < 0.2) { const u = unitQuestion('area'); return { kind: 'area', mode: 'pick', text: u.q, e: u.e, ans: u.a, options: shuffle(u.opts), why: u.why }; }
     const L = Math.min(lv, 4), w = ri(2, 8), h = ri(2, 6);
     if (L === 0) return { kind: 'area', mode: 'count', w: ri(2, 4), h: ri(2, 3), lines: true };
     if (L === 1) return { kind: 'area', mode: 'count', w, h, lines: true, needMul: true };
@@ -214,12 +214,56 @@
     return { kind: 'deci', mode: 'calc', text: plus ? `${d1(a)}＋${d1(b)}` : `${d1(a)}－${d1(b)}`, tenths: plus ? a + b : a - b, why: `都想成幾個 0.1：${a} 個 ${plus ? '加' : '減'} ${b} 個。` };
   }
 
+  /* ---------- 單位的量感題（單位教室與量量市集共用） ---------- */
+  // 每樣東西：圖、名字、問法、數值、單位、最小單位的量（用來排大小）。皆為生活中的大約值
+  const UNIT_FACTOR = { 毫米: 1, 公分: 10, 公尺: 1000, 毫升: 1, 公升: 1000, 公克: 1, 公斤: 1000, 秒: 1, 分鐘: 60, 小時: 3600, 平方公分: 1 };
+  const it = (e, name, dim, v, u) => ({ e, name, dim, v, u, base: v * UNIT_FACTOR[u] });
+  const UNIT_ITEMS = {
+    len: [
+      it('🪙', '十元硬幣的厚度', '多厚', 2, '毫米'), it('🐜', '一隻螞蟻', '多長', 4, '毫米'), it('🍚', '一粒米', '多長', 6, '毫米'), it('🔘', '襯衫的鈕扣', '多寬', 10, '毫米'), it('🟡', '一元硬幣', '多寬', 20, '毫米'),
+      it('🧽', '一塊橡皮擦', '多長', 5, '公分'), it('✋', '手掌', '多寬', 7, '公分'), it('✏️', '一枝新鉛筆', '多長', 18, '公分'), it('📏', '一把長尺', '多長', 30, '公分'), it('🪑', '課桌', '多高', 70, '公分'),
+      it('🚪', '教室的門', '多高', 2, '公尺'), it('🧑‍🏫', '黑板', '多長', 4, '公尺'), it('🏫', '教室', '多長', 9, '公尺'), it('🚌', '一輛公車', '多長', 10, '公尺'), it('🏃', '操場跑道一圈', '多長', 200, '公尺'),
+    ],
+    vol: [
+      it('💊', '一小杯藥水', '裝多少', 10, '毫升'), it('🥄', '一湯匙水', '裝多少', 15, '毫升'), it('🧃', '一小瓶養樂多', '裝多少', 100, '毫升'), it('🥤', '一包鋁箔包飲料', '裝多少', 250, '毫升'), it('🥫', '一罐汽水', '裝多少', 330, '毫升'), it('🧴', '一瓶礦泉水', '裝多少', 600, '毫升'),
+      it('🥛', '一大瓶鮮奶', '裝多少', 1, '公升'), it('🍾', '一大瓶汽水', '裝多少', 2, '公升'), it('🫖', '一壺熱水', '裝多少', 3, '公升'), it('🪣', '一個水桶', '裝多少', 10, '公升'), it('🛁', '一缸洗澡水', '裝多少', 200, '公升'),
+    ],
+    weight: [
+      it('📎', '一根迴紋針', '多重', 1, '公克'), it('🟡', '一元硬幣', '多重', 4, '公克'), it('📄', '一張紙', '多重', 5, '公克'), it('🥚', '一顆雞蛋', '多重', 50, '公克'), it('🍎', '一顆蘋果', '多重', 200, '公克'), it('📖', '一本課本', '多重', 300, '公克'),
+      it('🍚', '一包大砂糖', '多重', 1, '公斤'), it('🍾', '一大瓶汽水', '多重', 2, '公斤'), it('🎒', '裝滿書的書包', '多重', 3, '公斤'), it('🍉', '一顆大西瓜', '多重', 5, '公斤'), it('🧒', '三年級的孩子', '多重', 30, '公斤'), it('🧑', '一個大人', '多重', 60, '公斤'),
+    ],
+    time: [
+      it('👏', '拍一下手', '要多久', 1, '秒'), it('🧢', '戴帽子', '要多久', 10, '秒'), it('🧼', '好好洗手', '要多久', 30, '秒'),
+      it('🍜', '泡一碗泡麵', '要多久', 3, '分鐘'), it('🪥', '好好刷牙', '要多久', 4, '分鐘'), it('🔔', '一節下課', '有多久', 10, '分鐘'), it('🏫', '一節課', '有多久', 40, '分鐘'),
+      it('🎬', '看一部電影', '要多久', 2, '小時'), it('🎒', '在學校上課一天', '大約多久', 7, '小時'), it('🛌', '晚上睡覺', '要多久', 9, '小時'),
+    ],
+    area: [
+      it('👆', '食指的指腹', '多大', 1, '平方公分'), it('📮', '一張郵票', '多大', 6, '平方公分'), it('💳', '一張悠遊卡', '多大', 46, '平方公分'), it('🗒️', '一張便利貼', '多大', 56, '平方公分'), it('✋', '手掌', '多大', 100, '平方公分'), it('📖', '一本課本的封面', '多大', 500, '平方公分'),
+    ],
+  };
+  const UNITS_OF = { len: ['毫米', '公分', '公尺'], vol: ['毫升', '公升'], weight: ['公克', '公斤'], time: ['秒', '分鐘', '小時'], area: ['平方公分'] };
+  function unitQuestion(fam, item) { // 同一個數字配不同單位，感覺哪個才合理
+    const x = item || pick(UNIT_ITEMS[fam]), right = `${x.v} ${x.u}`, others = UNITS_OF[fam].filter(u => u !== x.u);
+    let opts;
+    if (others.length >= 2) opts = [right, `${x.v} ${others[0]}`, `${x.v} ${others[1]}`];
+    else if (others.length === 1) opts = [right, `${x.v} ${others[0]}`, `${x.v * 10} ${others[0]}`];
+    else opts = [right, `${x.v * 100} ${x.u}`, `${x.v * 1000} ${x.u}`];
+    return { e: x.e, q: `${x.name}大約${x.dim}？`, a: right, opts, why: `${x.name}大約 ${right}。` };
+  }
+  function orderQuestion(fam) { // 挑 3 樣差很多的東西，排大小
+    const pool = shuffle(UNIT_ITEMS[fam]), got = [];
+    for (const x of pool) { if (got.length < 3 && got.every(g => Math.max(g.base, x.base) / Math.min(g.base, x.base) >= 2)) got.push(x); }
+    return got;
+  }
+  const UNIT_QUIZ = Object.fromEntries(Object.keys(UNIT_ITEMS).map(k => [k, UNIT_ITEMS[k].map(x => unitQuestion(k, x))]));
+
   /* ---------- 十二：量量市集（三下第 2、3、6、10 單元） ---------- */
   function genMeas(lv, unit) {
     const types = ['ml'];
     if (unit >= 13) types.push('time');
     if (unit >= 16) types.push('g', 'dial');
     if (unit >= 20) types.push('table');
+    if (Math.random() < 0.3) { const u = unitQuestion(pick(['vol', 'weight', 'time'])); return { kind: 'meas', mode: 'pick', text: u.q, e: u.e, ans: u.a, options: shuffle(u.opts), why: u.why }; }
     const t = lv <= 0 ? 'ml' : pick(types), big = ri(1, 5), small = ri(1, 9) * 100 + pick([0, 0, 50]);
     if (t === 'ml') return Math.random() < 0.5 || lv === 0 ? { kind: 'meas', mode: 'to', big, small, per: 1000, u1: '公升', text: `${big} 公升 ${small} 毫升`, unit: '毫升', ans: big * 1000 + small, why: `1 公升是 1000 毫升。` } : { kind: 'meas', mode: 'from', per: 1000, text: `${big * 1000 + small} 毫升`, u1: '公升', u2: '毫升', steps: [big, small], why: '每 1000 毫升是 1 公升。' };
     if (t === 'g') return Math.random() < 0.5 ? { kind: 'meas', mode: 'to', big, small, per: 1000, u1: '公斤', text: `${big} 公斤 ${small} 公克`, unit: '公克', ans: big * 1000 + small, why: '1 公斤是 1000 公克。' } : { kind: 'meas', mode: 'from', per: 1000, text: `${big * 1000 + small} 公克`, u1: '公斤', u2: '公克', steps: [big, small], why: '每 1000 公克是 1 公斤。' };
@@ -253,6 +297,6 @@
     if (rec.down >= 2) { rec.lv = Math.max((rec.lv || 0) - 1, 0); rec.down = 0; }
     return rec;
   }
-  const api = { gen, GEN, toZh, bfs, adjust, maxLevel, angleKind, gcd, HOPS, ri, pick, shuffle, uniqueOptions };
+  const api = { UNIT_QUIZ, UNIT_ITEMS, UNIT_FACTOR, UNITS_OF, unitQuestion, orderQuestion, gen, GEN, toZh, bfs, adjust, maxLevel, angleKind, gcd, HOPS, ri, pick, shuffle, uniqueOptions };
   if (typeof module !== 'undefined') module.exports = api; else root.Logic = api;
 })(this);

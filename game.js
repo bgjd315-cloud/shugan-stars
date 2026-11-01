@@ -34,7 +34,7 @@ function load() {
   return null;
 }
 const PIECE_KEYS = ['port', 'ship', 'fact', 'mm', 'angle', 'div', 'rule', 'frac', 'circle']; // 九塊碎片的島，集滿才開最後一關
-const S = Object.assign({ stars: 0, unit: 5, sound: true, rec: {}, log: [], opened: false, prog: {}, bossDone: false, bossSeen: false, stamps: {}, fast: {} }, load() || {});
+const S = Object.assign({ stars: 0, unit: 5, sound: true, rec: {}, log: [], opened: false, prog: {}, bossDone: false, bossSeen: false, stamps: {}, fast: {}, learned: {} }, load() || {});
 S.unit = 20; // 全部單元開放
 function save() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) {} }
 const rec = g => S.rec[g] || (S.rec[g] = { lv: 0, up: 0, down: 0 });
@@ -300,17 +300,20 @@ function viewPractice() {
     const ts = practiceTopics().filter(t => t[0] === k);
     return ts.length ? `<h3 class="pg-h">${GAMES[k].name}<span class="sem">${GAMES[k].sem}</span></h3><div class="pg">${ts.map(t => `<button class="pg-btn" data-g="${t[0]}" data-l="${t[1]}"><span class="sem">${t[3] >= 11 ? '三下' : '三上'}</span>${nums(t[2])}</button>`).join('')}</div>` : '';
   }).join('');
-  $app.innerHTML = `<div class="top"><button class="icon-btn" id="home" aria-label="回小鎮">⌂</button><h2 class="page-h">練習場</h2></div><p class="tag">想多練哪一個？</p>${groups}`;
+  $app.innerHTML = `<div class="top"><button class="icon-btn" id="home" aria-label="回小鎮">⌂</button><h2 class="page-h">練習場</h2></div><p class="tag">想多練哪一個？</p><h3 class="pg-h">單位的量感</h3><div class="pg">${Object.entries(LESSONS).map(([k, L]) => `<button class="pg-btn" data-ud="${k}"><span class="sem">${L.sem}</span>${L.title}</button>`).join("")}</div>${groups}`;
   document.getElementById('home').onclick = () => go('');
-  document.querySelectorAll('.pg-btn').forEach(b => b.onclick = () => startRound(b.dataset.g, { lv: +b.dataset.l }));
+  document.querySelectorAll('.pg-btn[data-g]').forEach(b => b.onclick = () => startRound(b.dataset.g, { lv: +b.dataset.l }));
+  document.querySelectorAll('[data-ud]').forEach(b => b.onclick = () => runDrill(b.dataset.ud, viewPractice));
 }
 function enter(ch) {
   if (ch === 'boss') {
     if (!S.bossSeen) { S.bossSeen = true; save(); return comic(BOSS.bg, BOSS.intro, () => startRound('boss')); }
     return startRound('boss');
   }
-  if (!S.prog[ch]) return comic(STORY[ch].bg, STORY[ch].beats[0], () => startRound(ch));
-  startRound(ch);
+  lessonsThen(ch, () => {
+    if (!S.prog[ch]) return comic(STORY[ch].bg, STORY[ch].beats[0], () => startRound(ch));
+    startRound(ch);
+  });
 }
 
 /* ---------- 鍵盤 ---------- */
@@ -623,8 +626,8 @@ function viewMm(q) {
     frame(`緞帶長 ${N(q.n)} 毫米，<br>是幾公分幾毫米？`, rulerSvg(range, q.n, true) + '<div class="trail" id="ask"></div>', keypadHtml());
     return stepKeypad(['尺上走了幾大格？（幾公分）', '還多幾小格？（幾毫米）'], q.steps, q.why, `對了！${q.steps[0]} 公分 ${q.steps[1]} 毫米。`, 'from');
   }
-  frame(`${q.text}<br>大約是多少？`, '<div class="trail">想想看真的東西有多大</div>');
-  pickOne(q.options.map(o => nums(o)), q.options.indexOf(q.ans), '1 毫米很小很小，1 公分大約是小指頭的寬。', `大約是 ${q.ans}。`, 'guess');
+  frame(q.text, `<div class="u-big">${q.e}</div><div class="trail">想想看真的東西有多大</div>`);
+  pickOne(q.options.map(o => nums(o)), q.options.indexOf(q.ans), '1 毫米很小很小，1 公分大約是小指頭的寬，1 公尺大約是張開雙手。', q.why, 'guess');
 }
 
 /* ---------- 五：角角山 ---------- */
@@ -890,6 +893,10 @@ function gridSvg(w, h, cut) {
   return `<svg class="grid-a" viewBox="0 0 ${w * S + 4} ${h * S + 4}" style="width:${Math.min(w * S + 4, 300)}px">${r}</svg>`;
 }
 function viewArea(q) {
+  if (q.mode === 'pick') {
+    frame(q.text, `<div class="u-big">${q.e}</div>`);
+    return pickOne(q.options.map(o => nums(o)), q.options.indexOf(q.ans), '食指的指腹大約 1 平方公分，手掌大約 100 平方公分。', q.why, 'pick');
+  }
   if (q.mode === 'count') {
     frame(`這塊草地有幾平方公分？<br>一格是 1 平方公分。`, `<div class="cake-wrap">${gridSvg(q.w, q.h)}</div><div class="trail" id="ask"></div>`, keypadHtml());
     return stepKeypad(['幾平方公分？'], [q.w * q.h], `一排 ${q.w} 格，有 ${q.h} 排。`, `對了！${q.w}×${q.h}＝${q.w * q.h} 平方公分。`, 'count');
@@ -992,6 +999,10 @@ function viewDeci(q) {
 
 /* ---------- 十二：量量市集 ---------- */
 function viewMeas(q) {
+  if (q.mode === 'pick') {
+    frame(q.text, `<div class="u-big">${q.e}</div>`);
+    return pickOne(q.options.map(o => nums(o)), q.options.indexOf(q.ans), q.why, `對了！${q.why}`, 'pick');
+  }
   const crate = (u, n) => `<span class="crate"><b class="num">1</b>${u}<small class="num">＝${n}</small></span>`;
   if (q.mode === 'to') {
     frame(`${nums(q.text)}，<br>是幾${q.unit}？`, `<div class="crates">${Array.from({ length: q.big }, () => crate(q.u1, q.per)).join('')}<span class="crate small"><b class="num">${q.small}</b>${q.unit}</span></div><div class="trail" id="ask"></div>`, keypadHtml());
@@ -1014,6 +1025,233 @@ function viewMeas(q) {
 }
 
 const VIEWS = { port: viewPort, ship: viewShip, fact: viewFact, mm: viewMm, angle: viewAngle, div: viewDiv, rule: viewRule, frac: viewFrac, circle: viewCircle, area: viewArea, deci: viewDeci, meas: viewMeas };
+
+/* ---------- 單位教室：先認識單位，再建立數感 ---------- */
+const LESSONS = {
+  len: {
+    title: '長度', sem: '三上', icon: '📏', who: 'crab', name: '夾夾',
+    say: '做衣服要量得準。先來認識三個量長度的單位！',
+    cards: [
+      { e: '🐜', u: '毫米', t: '很小很小。一隻小螞蟻大約長 4 毫米，尺上最小的一格就是 1 毫米。' },
+      { e: '☝️', u: '公分', t: '小指頭大約 1 公分寬。鉛筆、書本用公分量。' },
+      { e: '🚪', u: '公尺', t: '張開雙手大約 1 公尺。教室、跑道用公尺量。' },
+    ],
+    labs: [
+      { from: '毫米', each: 1, n: 10, to: '1 公分', btn: '再加 1 毫米', done: '10 毫米，剛好是 1 公分！' },
+      { from: '公分', each: 10, n: 10, to: '1 公尺', btn: '再加 10 公分', done: '100 公分，剛好是 1 公尺！' },
+    ],
+  },
+  vol: {
+    title: '容量', sem: '三下', icon: '🥛', who: 'raccoon', name: '秤秤',
+    say: '瓶子能裝多少水，就是容量。先來認識公升和毫升！',
+    cards: [
+      { e: '💧', u: '毫升', t: '很少很少。量藥的小杯用毫升，一小瓶養樂多大約 100 毫升。' },
+      { e: '🧃', u: '公升', t: '一大瓶鮮奶大約 1 公升。水壺、水桶用公升量。' },
+    ],
+    labs: [{ from: '毫升', each: 100, n: 10, to: '1 公升', btn: '倒 100 毫升', done: '倒了 10 次，1000 毫升，剛好是 1 公升！', tall: true }],
+  },
+  weight: {
+    title: '重量', sem: '三下', icon: '⚖️', who: 'raccoon', name: '秤秤',
+    say: '東西有多重，用公克和公斤來說。拿起來感覺看看！',
+    cards: [
+      { e: '📎', u: '公克', t: '很輕很輕。一根迴紋針大約 1 公克。' },
+      { e: '🍚', u: '公斤', t: '一包大砂糖大約 1 公斤。書包、體重用公斤量。' },
+    ],
+    labs: [{ from: '公克', each: 100, n: 10, to: '1 公斤', btn: '放 100 公克', done: '放了 10 次，1000 公克，剛好是 1 公斤！' }],
+  },
+  time: {
+    title: '時間', sem: '三下', icon: '⏱️', who: 'liang', name: '亮亮',
+    say: '時間看不到，但可以拍拍手感覺。先來認識秒、分、小時！',
+    cards: [
+      { e: '👏', u: '秒', t: '拍一下手大約 1 秒。戴帽子大約 10 秒。' },
+      { e: '🪥', u: '分', t: '刷牙大約 4 分鐘。1 分鐘比想像中久喔。' },
+      { e: '🏫', u: '小時', t: '比一節課長一些。1 小時是 60 分鐘。' },
+      { e: '🌞', u: '日', t: '從今天早上到明天早上。1 日有 24 小時。' },
+    ],
+    labs: [
+      { from: '秒', each: 10, n: 6, to: '1 分鐘', btn: '再過 10 秒', done: '60 秒，剛好是 1 分鐘！不是 100 喔。' },
+      { from: '分', each: 10, n: 6, to: '1 小時', btn: '再過 10 分', done: '60 分，剛好是 1 小時！' },
+    ],
+  },
+  area: {
+    title: '面積', sem: '三下', icon: '🟩', who: 'sheep', name: '咩咩',
+    say: '一塊草地有多大，就是面積。先認識平方公分！',
+    cards: [
+      { e: '👆', u: '平方公分', t: '你的食指指腹大約 1 平方公分。一張悠遊卡大約 46 平方公分。' },
+    ],
+    labs: [{ tiles: true, w: 4, h: 3, done: '鋪了 12 格，就是 12 平方公分！' }],
+  },
+};
+function viewLessons() {
+  window.scrollTo(0, 0);
+  $app.innerHTML = `<div class="top"><button class="icon-btn" id="home" aria-label="回小鎮">⌂</button><h2 class="page-h">單位教室</h2></div>
+    <p class="tag">先認識單位，再去島上用它。</p>
+    <div class="lessons">${Object.entries(LESSONS).map(([k, L]) => `<div class="lesson-row"><button class="lesson" data-l="${k}"><span class="l-e">${L.icon}</span><span class="l-t"><b>${L.title}</b><small>${L.cards.map(c => c.u).join('、')}</small></span><em class="sem">${L.sem}</em>${(S.learned || {})[k] ? '<span class="badge in">✓</span>' : ''}</button><button class="drill-btn" data-d="${k}">練習</button></div>`).join('')}</div>`;
+  document.getElementById('home').onclick = () => go('');
+  document.querySelectorAll('[data-l]').forEach(b => b.onclick = () => runLesson(b.dataset.l, viewLessons));
+  document.querySelectorAll('[data-d]').forEach(b => b.onclick = () => runDrill(b.dataset.d, viewLessons));
+}
+function lessonFrame(L, title, body) {
+  window.scrollTo(0, 0);
+  $app.innerHTML = `<div class="top"><button class="icon-btn" id="out" aria-label="離開">⌂</button><h2 class="page-h">${L.title}<span class="sem">${L.sem}</span></h2><button class="icon-btn" id="say" aria-label="唸出來">🔊</button></div>
+    <div class="say-row">${artImg(L.who, 'say-who')}<div class="prompt" id="prompt">${title}</div></div><div class="stage" id="stage">${body}</div><div class="msg" id="msg"></div><div class="actions" id="actions"></div>`;
+  document.getElementById('say').onclick = () => speak(plainText(document.getElementById('prompt')));
+}
+const FAM_UNIT = { 分: '分鐘' };
+function exList(key, unit) { // 同單位的生活例子
+  const ex = Logic.UNIT_ITEMS[key].filter(x => x.u === (FAM_UNIT[unit] || unit));
+  return ex.length ? `<span class="u-ex">${ex.map(x => `<span>${x.e} ${x.name} ${x.v} ${x.u}</span>`).join('')}</span>` : '';
+}
+function runLesson(key, then) {
+  const L = LESSONS[key];
+  const leave = () => { document.body.classList.remove('in-cine'); then(); };
+  // 第一步：一張一張看實物
+  function cards() {
+    lessonFrame(L, L.say, `<div class="u-cards">${L.cards.map((c, i) => `<button class="u-card" data-i2="${i}"><span class="u-e">${c.e}</span><b>${c.u}</b><small class="u-t" hidden>${nums(c.t)}${exList(key, c.u)}</small></button>`).join('')}</div>`);
+    document.getElementById('out').onclick = leave;
+    const seen = new Set();
+    document.getElementById('actions').innerHTML = '<button class="btn" id="go2" disabled>動手試試</button>';
+    setMsg('點每一張卡片，看看它有多大。');
+    document.querySelectorAll('.u-card').forEach(b => b.onclick = () => {
+      seen.add(b.dataset.i2); b.classList.add('seen'); b.querySelector('.u-t').hidden = false; sfx.hop();
+      speak(L.cards[+b.dataset.i2].u + '。' + L.cards[+b.dataset.i2].t);
+      if (seen.size === L.cards.length) { document.getElementById('go2').disabled = false; setMsg('都看過了！'); reveal('#actions'); }
+    });
+    document.getElementById('go2').onclick = () => lab(0);
+  }
+  // 第二步：動手裝滿，感覺單位之間的關係
+  function lab(i) {
+    const X = L.labs[i];
+    if (!X) return quiz();
+    if (X.tiles) return tiles(X, i);
+    lessonFrame(L, `一直加，加到 ${X.to}。`, `<div class="${X.tall ? 'u-bottle' : 'u-bar'}" id="bar">${Array.from({ length: X.n }, () => '<i></i>').join('')}</div><div class="u-count" id="cnt"></div><div class="trade"><button id="add">${X.btn}</button></div>`);
+    document.getElementById('out').onclick = leave;
+    let k = 0;
+    const draw = () => {
+      document.querySelectorAll('#bar i').forEach((c, j) => c.classList.toggle('on', j < k));
+      document.getElementById('cnt').innerHTML = `<b class="num">${k * X.each}</b> ${X.from}`;
+    };
+    draw();
+    document.getElementById('add').onclick = () => {
+      if (k >= X.n) return;
+      k++; sfx.hop(); draw();
+      if (k === X.n) {
+        sfx.good(); document.getElementById('add').style.display = 'none'; setMsg(nums(X.done), 'good');
+        document.getElementById('actions').innerHTML = '<button class="btn" id="go3">繼續</button>';
+        document.getElementById('go3').onclick = () => lab(i + 1);
+        reveal('#actions');
+      }
+    };
+  }
+  function tiles(X, i) {
+    lessonFrame(L, `一格是 1 平方公分。<br>點格子，把草地鋪滿。`, `<div class="u-tiles" style="grid-template-columns:repeat(${X.w},1fr)">${Array.from({ length: X.w * X.h }, (_, j) => `<button class="u-tile" data-t="${j}" aria-label="第 ${j + 1} 格"></button>`).join('')}</div><div class="u-count" id="cnt"></div>`);
+    document.getElementById('out').onclick = leave;
+    const on = new Set();
+    const draw = () => { document.getElementById('cnt').innerHTML = `<b class="num">${on.size}</b> 平方公分`; };
+    draw();
+    document.querySelectorAll('.u-tile').forEach(b => b.onclick = () => {
+      if (on.has(b.dataset.t)) return;
+      on.add(b.dataset.t); b.classList.add('on'); sfx.hop(); draw();
+      if (on.size === X.w * X.h) {
+        sfx.good(); setMsg(nums(X.done), 'good');
+        document.getElementById('actions').innerHTML = '<button class="btn" id="go3">繼續</button>';
+        document.getElementById('go3').onclick = () => lab(i + 1);
+        reveal('#actions');
+      }
+    });
+  }
+  // 第三步：選單位、排大小、想一想
+  function quiz() {
+    const plan = key === 'area' ? ['order', 'quiz', 'quiz', 'quiz'] : ['sort', 'sort', 'order', 'quiz', 'quiz'];
+    unitDrill(key, plan, leave, finishLesson);
+  }
+  function finishLesson() {
+    S.learned = S.learned || {}; const first = !S.learned[key]; S.learned[key] = 1;
+    if (first) S.stars += 100;
+    save();
+    lessonFrame(L, `${L.title}單位，你認識了！`, `<div class="u-big">${L.icon}</div><div class="u-sum">${L.cards.map(c => `<span>${c.e} ${c.u}</span>`).join('')}</div>${first ? `<div class="trail">${nums('夜空多亮了 100 顆星')}</div>` : ''}`);
+    document.getElementById('out').onclick = leave;
+    document.getElementById('actions').innerHTML = '<button class="btn" id="end">好！</button>';
+    document.getElementById('end').onclick = leave;
+  }
+  cards();
+}
+// 單位練習：sort 替東西選單位、order 由小排到大、quiz 大約多少
+function unitDrill(key, plan, leave, done) {
+  const L = LESSONS[key], used = new Set(); let n = 0, firstTry = 0;
+  const nextItem = () => { const pool = Logic.UNIT_ITEMS[key].filter(x => !used.has(x)), x = Logic.pick(pool.length ? pool : Logic.UNIT_ITEMS[key]); used.add(x); return x; };
+  const passed = (clean, msg) => {
+    if (clean) { firstTry++; S.stars += 25; save(); }
+    setMsg(nums(msg), 'good'); sfx.ok(); n++;
+    document.getElementById('actions').innerHTML = `<button class="btn" id="go4">${n < plan.length ? '下一題' : '完成'}</button>`;
+    document.getElementById('go4').onclick = ask;
+    reveal('#actions');
+  };
+  const count = () => nums(`第 ${n + 1} 題，共 ${plan.length} 題`);
+  function choose(prompt, emoji, opts, right, why, okMsg) {
+    lessonFrame(L, prompt, `<div class="u-big">${emoji}</div><div class="trail">${count()}</div>`);
+    document.getElementById('out').onclick = leave;
+    document.getElementById('actions').innerHTML = `<div class="choices col">${opts.map(o => `<button class="choice" data-o="${esc(o)}">${nums(o)}</button>`).join('')}</div>`;
+    let clean = true;
+    document.querySelectorAll('[data-o]').forEach(b => b.onclick = () => {
+      if (b.dataset.o === right) return passed(clean, okMsg);
+      clean = false; sfx.retry(); b.classList.add('no'); b.disabled = true; setMsg(nums(why), 'hint');
+    });
+  }
+  function order() {
+    const items = Logic.orderQuestion(key), right = items.slice().sort((a, b) => a.base - b.base), show = Logic.shuffle(items), picked = [];
+    lessonFrame(L, '由小到大排排看：<br>從最小的開始點。', `<div class="u-slots" id="slots"></div><div class="u-items">${show.map((x, i) => `<button class="u-item" data-x="${i}"><span class="u-e">${x.e}</span>${x.name}</button>`).join('')}</div><div class="trail">${count()}</div>`);
+    document.getElementById('out').onclick = leave;
+    let clean = true;
+    const slots = () => { document.getElementById('slots').innerHTML = [0, 1, 2].map(i => `<span class="u-slot ${picked[i] ? 'on' : ''}">${picked[i] ? `${picked[i].e}<small>${nums(`${picked[i].v} ${picked[i].u}`)}</small>` : `<b class="num">${i + 1}</b>`}</span>`).join(''); };
+    slots();
+    document.querySelectorAll('[data-x]').forEach(b => b.onclick = () => {
+      const x = show[+b.dataset.x];
+      if (x === right[picked.length]) {
+        picked.push(x); b.disabled = true; b.classList.add('no'); sfx.hop(); slots();
+        if (picked.length === 3) passed(clean, `對了！由小到大：${right.map(r => `${r.name} ${r.v} ${r.u}`).join('，')}。`);
+        return;
+      }
+      clean = false; sfx.retry();
+      setMsg(`${x.name}還不是最小的，再想想看。`, 'hint');
+    });
+  }
+  function ask() {
+    if (n >= plan.length) return done(firstTry);
+    const kind = plan[n];
+    if (kind === 'order') return order();
+    const x = nextItem();
+    if (kind === 'sort') {
+      const names = Logic.UNITS_OF[key].map(u => u);
+      return choose(`${x.name}${x.dim}，<br>用哪個單位最合適？`, x.e, names, x.u, Logic.UNITS_OF[key].length === 3 ? '想想看：很小用小單位，很大用大單位。' : '很少或很輕用小單位，很多或很重用大單位。', `對了！${x.name}大約 ${x.v} ${x.u}。`);
+    }
+    const q = Logic.unitQuestion(key, x);
+    choose(q.q, q.e, Logic.shuffle(q.opts), q.a, q.why, `對了！${q.why}`);
+  }
+  ask();
+}
+function runDrill(key, then) { // 單獨練習一輪
+  const L = LESSONS[key], base = key === 'area' ? ['order', 'quiz', 'quiz', 'quiz', 'order', 'quiz'] : ['sort', 'quiz', 'order', 'sort', 'quiz', 'sort', 'order', 'quiz'];
+  unitDrill(key, base, then, firstTry => {
+    lessonFrame(L, `練習完成！`, `<div class="u-big">${L.icon}</div><div class="u-count"><b class="num">${firstTry}</b> ／ ${base.length} 題第一次就對</div><div class="trail">${nums(`夜空多亮了 ${firstTry * 25} 顆星`)}</div>`);
+    document.getElementById('out').onclick = then;
+    document.getElementById('actions').innerHTML = '<button class="btn" id="again">再練一輪</button><button class="btn alt" id="end">好了</button>';
+    document.getElementById('again').onclick = () => runDrill(key, then);
+    document.getElementById('end').onclick = then;
+  });
+}
+// 哪座島第一次進去前要先上哪一課
+const LESSON_BEFORE = { mm: ['len'], area: ['area'], meas: ['vol', 'time', 'weight'] };
+function lessonsThen(ch, then) {
+  const need = (LESSON_BEFORE[ch] || []).find(k => !(S.learned || {})[k]);
+  if (!need) return then();
+  const L = LESSONS[need];
+  lessonFrame(L, `先認識${L.title}的單位，<br>等一下用起來就不怕了！`, `<div class="u-big">${L.icon}</div>`);
+  document.getElementById('out').onclick = () => go('');
+  document.getElementById('actions').innerHTML = '<button class="btn" id="yes">去上課</button><button class="btn alt" id="no">先跳過</button>';
+  document.getElementById('yes').onclick = () => runLesson(need, () => lessonsThen(ch, then));
+  document.getElementById('no').onclick = then;
+}
 
 /* ---------- 首頁 ---------- */
 let titleShown = false;
@@ -1064,6 +1302,7 @@ function viewHome() {
       <div class="map-title"><h1 class="logo small">星星島</h1><div class="star-count">⭐ ${N(Math.min(S.stars, S.bossDone ? 10000 : 9999))}<small>／10000</small></div></div>
       <div class="hero-say">${artImg(S.bossDone ? 'liang_cheer' : 'liang', 'hero-liang')}<span>${line}</span></div>
     </header>
+    <button class="lesson-entry" id="lessons"><span>📏🥛⚖️⏱️</span><b>單位教室</b><small>${Object.keys(S.learned || {}).length} / 5</small></button>
     <div class="map-trail" style="height:${ROW * rows + 8}px">
       <svg viewBox="0 0 100 ${ROW * rows}" preserveAspectRatio="none" aria-hidden="true"><path d="${pathD}" fill="none" stroke="#fff6e3" stroke-width="5" stroke-dasharray="3 11" stroke-linecap="round" vector-effect="non-scaling-stroke" opacity=".9"/></svg>
       ${keys.map(stop).join('')}
@@ -1081,6 +1320,7 @@ function viewHome() {
   document.getElementById('daily').onclick = () => startRound('daily');
   document.getElementById('practice').onclick = viewPractice;
   document.getElementById('clues').onclick = viewClues;
+  document.getElementById('lessons').onclick = viewLessons;
 }
 
 /* ---------- 家長頁 ---------- */
@@ -1123,7 +1363,7 @@ function viewParent() {
   </div>`;
   document.getElementById('snd').onchange = e => { S.sound = e.target.checked; save(); };
   document.getElementById('reset').onclick = () => {
-    if (confirm('確定清除所有星星和紀錄？')) { S.stars = 0; S.rec = {}; S.log = []; S.prog = {}; S.opened = false; S.bossDone = false; S.bossSeen = false; S.s2Seen = false; S.stamps = {}; S.fast = {}; save(); viewParent(); }
+    if (confirm('確定清除所有星星和紀錄？')) { S.stars = 0; S.rec = {}; S.log = []; S.prog = {}; S.opened = false; S.bossDone = false; S.bossSeen = false; S.s2Seen = false; S.stamps = {}; S.fast = {}; S.learned = {}; save(); viewParent(); }
   };
   document.getElementById('out').onclick = () => go('');
 }
