@@ -703,54 +703,115 @@ const fracHtml = (a, n) => `<span class="frac num"><i>${a}</i><i>${n}</i></span>
 function fbar(n, a, id) {
   return `<div class="fcells" ${id ? `id="${id}"` : ''}>${Array.from({ length: n }, (_, i) => `<button class="fcell ${i < a ? 'on' : ''}" data-c="${i}" aria-label="第 ${i + 1} 塊"></button>`).join('')}</div>`;
 }
-function pieSvg(n, a, b, gone) { // a 塊紅色、b 塊橘色、gone 塊被吃掉（虛線）
+const SLICE = { a: '#d6476b', b: '#f0a03c', g: '#ffffff', '': '#fff0cf' };
+function pieSvg(n, states, from, nums2) { // states：每塊的狀態；每一塊都可以點
   const P = i => { const t = i / n * 2 * Math.PI - Math.PI / 2; return `${60 + 54 * Math.cos(t)} ${60 + 54 * Math.sin(t)}`; };
-  let s = '<svg class="pie" viewBox="0 0 120 120"><circle cx="60" cy="60" r="56" fill="#e8c48a"/>';
+  let s = '<svg class="pie" viewBox="0 0 120 120"><circle cx="60" cy="60" r="57" fill="#c98f4a"/>';
   for (let i = 0; i < n; i++) {
-    const fill = i < a ? '#d6476b' : i < a + (b || 0) ? '#f0a03c' : i < a + (b || 0) + (gone || 0) ? '#fff' : '#fff0cf';
-    s += `<path d="M60 60L${P(i)}A54 54 0 0 1 ${P(i + 1)}Z" fill="${fill}" stroke="#a9702a" stroke-width="2" ${i >= a + (b || 0) && i < a + (b || 0) + (gone || 0) ? 'stroke-dasharray="4 3"' : ''}/>`;
+    const st = states[i] || '', idx = (from || 0) + i;
+    if (n === 1) { s += `<circle cx="60" cy="60" r="54" data-s="${idx}" fill="${SLICE[st]}" stroke="#a9702a" stroke-width="2"/>`; continue; }
+    s += `<path data-s="${idx}" d="M60 60L${P(i)}A54 54 0 0 1 ${P(i + 1)}Z" fill="${SLICE[st]}" stroke="#a9702a" stroke-width="2" ${st === 'g' ? 'stroke-dasharray="4 3"' : ''}/>`;
+    if (nums2 && nums2[i]) { const t = (i + .5) / n * 2 * Math.PI - Math.PI / 2; s += `<text x="${60 + 34 * Math.cos(t)}" y="${60 + 34 * Math.sin(t) + 6}" text-anchor="middle" font-size="17" style="fill:#33405a;pointer-events:none">${nums2[i]}</text>`; }
   }
   return s + '</svg>';
 }
-function pies(n, a, b, gone) { // 超過 1 個派就畫第二個
-  const total = a + (b || 0) + (gone || 0);
-  if (total <= n) return `<div class="vs">${pieSvg(n, a, b, gone)}</div>`;
-  const a1 = Math.min(a, n), b1 = Math.min(b || 0, n - a1), g1 = Math.min(gone || 0, n - a1 - b1);
-  return `<div class="vs">${pieSvg(n, a1, b1, g1)}${pieSvg(n, a - a1, (b || 0) - b1, (gone || 0) - g1)}</div>`;
+function piesHtml(n, states) { // 超過一個派就畫下一個
+  const out = [], count = Math.max(1, Math.ceil(states.length / n));
+  for (let k = 0; k < count; k++) out.push(pieSvg(n, states.slice(k * n, k * n + n), k * n));
+  return out.join('');
 }
-const pieWith = (n, a) => `<span class="pie-w">${pieSvg(n, a)}${fracHtml(a, n)}</span>`;
+const pieWith = (n, a) => `<span class="pie-w">${pieSvg(n, Array.from({ length: n }, (_, i) => i < a ? 'a' : ''))}${fracHtml(a, n)}</span>`;
 function viewFrac(q) {
+  const graded = () => R.tries === 0 ? 2 : R.tries === 1 ? 1 : 0;
   if (q.mode === 'unit' || q.mode === 'name') {
-    frame(`派平分成幾塊？<br>紅色是幾分之幾個？`, `<div class="cake-wrap">${pieSvg(q.n, q.a)}</div><div class="trail">${nums('下面的數（分母）：全部幾塊。上面的數（分子）：紅色幾塊。')}</div>`);
-    const set = new Set([q.n]); while (set.size < 3) { const x = Logic.ri(2, 12); if (x >= q.a + (q.a > 1 ? 1 : 0)) set.add(x); }
-    const opts = Logic.shuffle([...set]);
-    return pickOne(opts.map(x => fracHtml(q.a, x)), opts.indexOf(q.n), '數數看一共平分成幾塊，那就是分母。', `對了！平分成 ${q.n} 塊，拿 ${q.a} 塊。`, 'name');
+    // 一塊一塊點著數，再自己組出分數
+    frame('紅色是幾分之幾個派？<br>點派一塊一塊數，再調整分數。', `<div class="pie-row"><div id="pp"></div><div class="fb">
+      <div class="fb-row"><button data-fb="a-">−</button><b class="num" id="fa">1</b><button data-fb="a+">＋</button><small>紅色幾塊</small></div>
+      <hr><div class="fb-row"><button data-fb="d-">−</button><b class="num" id="fd">1</b><button data-fb="d+">＋</button><small>全部幾塊</small></div></div></div>`);
+    let a = 1, d = 1, tally = 0; const marks = new Array(q.n).fill(0);
+    const states = Array.from({ length: q.n }, (_, i) => i < q.a ? 'a' : '');
+    const drawPie = () => {
+      document.getElementById('pp').innerHTML = pieSvg(q.n, states, 0, marks);
+      document.querySelectorAll('#pp [data-s]').forEach(s => s.onclick = () => { const i = +s.dataset.s; if (!marks[i]) { marks[i] = ++tally; sfx.hop(); setMsg(nums(`數到第 ${tally} 塊了。`)); drawPie(); } });
+    };
+    drawPie();
+    document.querySelectorAll('[data-fb]').forEach(b => b.onclick = () => {
+      const k = b.dataset.fb; if (k === 'a+') a = Math.min(12, a + 1); if (k === 'a-') a = Math.max(1, a - 1); if (k === 'd+') d = Math.min(12, d + 1); if (k === 'd-') d = Math.max(1, d - 1);
+      document.getElementById('fa').textContent = a; document.getElementById('fd').textContent = d; sfx.hop();
+    });
+    document.getElementById('actions').innerHTML = '<button class="btn" id="ok">上菜</button>';
+    document.getElementById('ok').onclick = () => {
+      if (a === q.a && d === q.n) return finish(graded(), 'name', nums(`對了！平分成 ${q.n} 塊，紅色 ${q.a} 塊，就是 ${q.a}/${q.n} 個派。`));
+      R.tries++; sfx.retry();
+      if (R.tries >= 3) return finish(0, { wrong: `${a}/${d}`, ans: `${q.a}/${q.n}` }, nums(`答案是 ${q.a}/${q.n}：全部 ${q.n} 塊在下面，紅色 ${q.a} 塊在上面。`));
+      setMsg(d !== q.n ? '下面的數是全部幾塊。把每一塊都點一遍數數看。' : '上面的數是紅色有幾塊。', 'hint');
+    };
+    return;
   }
   if (q.mode === 'make') {
-    frame(`點一點，做出 ${fracHtml(q.a, q.n)} 個派。`, fbar(q.n, 0, 'cells'));
-    const on = new Set();
-    document.querySelectorAll('.fcell').forEach(c => c.onclick = () => { const i = +c.dataset.c; on.has(i) ? on.delete(i) : on.add(i); c.classList.toggle('on'); sfx.hop(); });
-    document.getElementById('actions').innerHTML = '<button class="btn" id="ok">做好了</button>';
+    // 自己切派、自己拿
+    frame(`客人要 ${fracHtml(q.a, q.n)} 個派。<br>先切好，再點要給客人的塊。`, `<div class="cake-wrap" id="pp"></div><div class="trade"><button id="less">少切一刀</button><button id="more">多切一刀</button></div><div class="trail num" id="now"></div>`);
+    let n = 1; const on = new Set();
+    const draw = () => {
+      document.getElementById('pp').innerHTML = pieSvg(n, Array.from({ length: n }, (_, i) => on.has(i) ? 'a' : ''));
+      document.getElementById('now').innerHTML = nums(`切成 ${n} 塊，拿了 ${on.size} 塊`);
+      document.querySelectorAll('#pp [data-s]').forEach(s => s.onclick = () => { const i = +s.dataset.s; on.has(i) ? on.delete(i) : on.add(i); sfx.hop(); draw(); });
+    };
+    document.getElementById('more').onclick = () => { if (n < 12) { n++; on.clear(); sfx.hop(); draw(); } };
+    document.getElementById('less').onclick = () => { if (n > 1) { n--; on.clear(); sfx.hop(); draw(); } };
+    draw();
+    document.getElementById('actions').innerHTML = '<button class="btn" id="ok">端給客人</button>';
     document.getElementById('ok').onclick = () => {
-      if (on.size === q.a) return finish(R.tries === 0 ? 2 : R.tries === 1 ? 1 : 0, 'make', nums(`對了！分子是 ${q.a}，就是拿 ${q.a} 塊。`));
+      if (n === q.n && on.size === q.a) return finish(graded(), 'make', nums(`對了！切成 ${q.n} 塊（分母），拿 ${q.a} 塊（分子）。`));
       R.tries++; sfx.retry();
-      if (R.tries === 1) return setMsg(nums(`你拿了 ${on.size} 塊。上面的數字是分子，表示拿幾塊。`), 'hint');
-      finish(0, { wrong: on.size, ans: q.a }, nums(`要拿 ${q.a} 塊。`));
+      if (R.tries >= 3) return finish(0, { wrong: `${on.size}/${n}`, ans: `${q.a}/${q.n}` }, nums(`要切成 ${q.n} 塊，拿 ${q.a} 塊。`));
+      setMsg(n !== q.n ? nums(`分數下面是 ${q.n}，所以要切成 ${q.n} 塊。`) : nums(`分數上面是 ${q.a}，所以要拿 ${q.a} 塊。`), 'hint');
     };
     return;
   }
   if (q.mode === 'accum') {
-    frame(`每塊是 ${fracHtml(1, q.n)} 個派，<br>拿 ${N(q.a)} 塊，是多少？`, `<div class="cake-wrap">${pieSvg(q.n, q.a)}</div><div class="trail" id="ask"></div>`, keypadHtml());
-    return stepKeypad([q.whole ? '是幾個完整的派？（填數字）' : `分子是多少？（分母還是 ${q.n}）`], [q.whole ? 1 : q.a], `一塊一塊數，就和數整數一樣。`, q.whole ? `對了！${q.n} 個 1/${q.n} 就是 1 個派。` : `對了！就是 ${q.a}/${q.n}。`, 'accum');
+    // 一塊一塊放進盤子，分數跟著長大
+    frame(`每塊是 ${fracHtml(1, q.n)} 個派，<br>放 ${N(q.a)} 塊到盤子上。`, `<div class="cake-wrap" id="pp"></div><div class="trail num" id="now"></div><div class="trade"><button id="back">拿回一塊</button><button id="put">再放一塊</button></div>`);
+    let k = 0;
+    const draw = () => {
+      document.getElementById('pp').innerHTML = pieSvg(q.n, Array.from({ length: q.n }, (_, i) => i < k ? 'a' : ''));
+      document.getElementById('now').innerHTML = k ? `${N(k)} 個 ${fracHtml(1, q.n)} 是 ${fracHtml(k, q.n)}${k === q.n ? '，就是 1 個派！' : ''}` : '盤子是空的';
+    };
+    document.getElementById('put').onclick = () => { if (k < q.n) { k++; sfx.hop(); draw(); } };
+    document.getElementById('back').onclick = () => { if (k > 0) { k--; sfx.hop(); draw(); } };
+    draw();
+    document.getElementById('actions').innerHTML = '<button class="btn" id="ok">放好了</button>';
+    document.getElementById('ok').onclick = () => {
+      if (k === q.a) return finish(graded(), 'accum', nums(q.whole ? `對了！${q.n} 個 1/${q.n} 就是 1 個完整的派。` : `對了！${q.a} 個 1/${q.n} 就是 ${q.a}/${q.n}。`));
+      R.tries++; sfx.retry();
+      if (R.tries >= 3) return finish(0, { wrong: k, ans: q.a }, nums(`要放 ${q.a} 塊。`));
+      setMsg(nums(`現在 ${k} 塊，要 ${q.a} 塊。`), 'hint');
+    };
+    return;
   }
   if (q.mode === 'cmp') {
-    frame('哪一盤的派比較多？', `<div class="vs">${pieWith(q.n, q.a)}<span>和</span>${pieWith(q.n, q.b)}</div>`);
-    return pickOne(['左邊', '右邊'], q.ans === 'L' ? 0 : 1, '分母一樣，塊的大小一樣，比幾塊就好。', '對了！分母一樣，分子大的比較大。', 'cmp');
+    frame('每塊一樣大，<br>點派比較多的那一盤。', '<div class="trail">分母一樣，數紅色幾塊就好</div>');
+    return pickOne([pieWith(q.n, q.a), pieWith(q.n, q.b)], q.ans === 'L' ? 0 : 1, '每塊一樣大，數數看哪一盤的紅色比較多。', '對了！分母一樣，分子大的比較多。', 'cmp');
   }
-  const add = q.mode === 'add';
-  const pic = add ? pies(q.n, q.a, q.b) : pies(q.n, q.a - q.b, 0, q.b);
-  frame(`${fracHtml(q.a, q.n)} ${add ? '＋' : '－'} ${fracHtml(q.b, q.n)}<br>${add ? '合起來' : '吃掉以後'}是幾塊？`, `${pic}<div class="trail">${nums(add ? `紅色 ${q.a} 塊，橘色 ${q.b} 塊，每塊都是 1/${q.n} 個派` : `原本 ${q.a} 塊，虛線 ${q.b} 塊被吃掉了`)}</div><div class="trail" id="ask"></div>`, keypadHtml());
-  stepKeypad(['分子＝？'], [q.ans], `${q.a} 塊 ${add ? '加' : '減'} ${q.b} 塊。`, `對了！答案是 ${q.ans}/${q.n}。`, q.mode);
+  // 加法：一塊一塊放進去；減法：一塊一塊吃掉；動手做完才回答
+  const add = q.mode === 'add', st = Array.from({ length: add ? q.a : q.a }, () => 'a');
+  frame(`${fracHtml(q.a, q.n)} ${add ? '＋' : '－'} ${fracHtml(q.b, q.n)}<br>${add ? `再放 ${N(q.b)} 塊上去。` : `點派，吃掉 ${N(q.b)} 塊。`}`,
+    `<div class="vs" id="pp"></div>${add ? '<div class="trade"><button id="put">再放一塊</button></div>' : ''}<div class="trail num" id="now"></div><div id="kp" hidden>${keypadHtml()}</div><div class="trail" id="ask" hidden></div>`);
+  let done = 0, opened = false;
+  const pad = arr => { const out = arr.slice(); while (out.length % q.n) out.push(''); return out; };
+  const open = () => {
+    if (opened) return; opened = true;
+    document.getElementById('kp').hidden = false; document.getElementById('ask').hidden = false;
+    stepKeypad([`現在有幾塊？（答案是 □/${q.n}）`], [q.ans], `數一數${add ? '紅色和橘色' : '還留著的紅色'}共幾塊。`, `對了！答案是 ${q.ans}/${q.n}${q.ans === q.n ? '，剛好 1 個派' : q.ans > q.n ? `，比 1 個派多 ${q.ans - q.n} 塊` : ''}。`, q.mode);
+  };
+  const draw = () => {
+    document.getElementById('pp').innerHTML = piesHtml(q.n, pad(st));
+    const left = q.b - done;
+    document.getElementById('now').innerHTML = left > 0 ? nums(add ? `還要放 ${left} 塊` : `還要吃 ${left} 塊`) : nums(add ? '放好了！' : '吃完了！');
+    if (!add) document.querySelectorAll('#pp [data-s]').forEach(s => s.onclick = () => { const i = +s.dataset.s; if (st[i] === 'a' && done < q.b) { st[i] = 'g'; done++; sfx.hop(); draw(); if (done === q.b) open(); } });
+  };
+  if (add) document.getElementById('put').onclick = () => { if (done < q.b) { st.push('b'); done++; sfx.hop(); draw(); if (done === q.b) { document.getElementById('put').disabled = true; open(); } } };
+  draw();
 }
 
 /* ---------- 九：圓圓天文台 ---------- */
@@ -817,38 +878,72 @@ function viewArea(q) {
 }
 
 /* ---------- 十一：小數碼頭 ---------- */
-function tenths(n, cls) { // 滿 10 格是 1，一條一條畫
-  let h = '', left = n;
-  while (left > 0) { const k = Math.min(left, 10); h += `<div class="tenbar ${cls || ''}">${Array.from({ length: 10 }, (_, i) => `<i class="${i < k ? 'on' : ''}"></i>`).join('')}</div>`; left -= k; }
-  return `<div class="tenbars">${h || '<div class="tenbar"></div>'}</div>`;
+function fishBars(states) { // 每 10 段一條；a 原本、b 加上去、g 吃掉
+  const rows = []; for (let i = 0; i < Math.max(states.length, 1); i += 10) rows.push(states.slice(i, i + 10));
+  return `<div class="tenbars">${rows.map(r => `<div class="tenbar fish">${Array.from({ length: 10 }, (_, i) => `<i class="${r[i] || ''}"></i>`).join('')}</div>`).join('')}</div>`;
 }
+const fishState = (n, s) => Array.from({ length: n }, () => s || 'a');
 function viewDeci(q) {
-  const d1 = n => (n / 10).toFixed(1);
+  const d1 = n => (n / 10).toFixed(1), graded = () => R.tries === 0 ? 2 : R.tries === 1 ? 1 : 0;
   if (q.mode === 'color') {
-    frame(`這條魚乾平分成 10 段，<br>一段是 0.1，點出 ${N(d1(q.a))}。`, fbar(10, 0, 'cells'));
-    const on = new Set();
-    document.querySelectorAll('.fcell').forEach(c => c.onclick = () => { const i = +c.dataset.c; on.has(i) ? on.delete(i) : on.add(i); c.classList.toggle('on'); sfx.hop(); });
-    document.getElementById('actions').innerHTML = '<button class="btn" id="ok">好了</button>';
+    // 點到第幾段就拿到第幾段，小數跟著變
+    frame(`一條魚乾平分成 10 段，<br>一段是 ${N('0.1')}。拿出 ${N(d1(q.a))} 條。`, `<div class="fcells" id="cells">${Array.from({ length: 10 }, (_, i) => `<button class="fcell" data-c="${i}" aria-label="拿到第 ${i + 1} 段"></button>`).join('')}</div><div class="trail num" id="now"></div>`);
+    let k = 0;
+    const draw = () => { document.querySelectorAll('.fcell').forEach((c, i) => c.classList.toggle('on', i < k)); document.getElementById('now').innerHTML = k ? nums(`${k} 段，就是 ${k} 個 0.1，寫成 ${d1(k)}`) : '點魚乾，拿到第幾段'; };
+    document.querySelectorAll('.fcell').forEach(c => c.onclick = () => { const i = +c.dataset.c; k = k === i + 1 ? i : i + 1; sfx.hop(); draw(); });
+    draw();
+    document.getElementById('actions').innerHTML = '<button class="btn" id="ok">拿好了</button>';
     document.getElementById('ok').onclick = () => {
-      if (on.size === q.a) return finish(R.tries === 0 ? 2 : R.tries === 1 ? 1 : 0, 'color', nums(`對了！${d1(q.a)} 就是 ${q.a} 個 0.1。`));
+      if (k === q.a) return finish(graded(), 'color', nums(`對了！${d1(q.a)} 就是 ${q.a} 個 0.1。`));
       R.tries++; sfx.retry();
-      if (R.tries === 1) return setMsg('一段是 0.1，算算看要幾段。', 'hint');
-      finish(0, { wrong: on.size, ans: q.a }, nums(`要 ${q.a} 段。`));
+      if (R.tries >= 3) return finish(0, { wrong: k, ans: q.a }, nums(`要 ${q.a} 段。`));
+      setMsg(nums(`小數點後面的數字是幾段：${d1(q.a)} 要 ${q.a} 段。`), 'hint');
     };
     return;
   }
   if (q.mode === 'count') {
-    frame(`${N(q.text)} 條魚乾，<br>是幾段 ${N('0.1')}？`, `${tenths(q.n)}<div class="trail">一整條是 10 段</div><div class="trail" id="ask"></div>`, keypadHtml());
-    return stepKeypad(['幾段？'], [q.ans], '數一數：一整條 10 段，再加上多的段數。', `對了！${q.text} 是 ${q.ans} 個 0.1。`, 'count');
+    // 用整條和段拼出小數
+    frame(`幫大嘴拿 ${N(q.text)} 條魚乾。<br>小數點左邊是整條，右邊是幾段。`, `<div id="fb"></div><div class="trail num" id="now"></div><div class="trade"><button id="m1">拿回一條</button><button id="p1">加一整條</button></div><div class="trade"><button id="m2">拿回一段</button><button id="p2">加一段</button></div>`);
+    let k = 0;
+    const draw = () => { document.getElementById('fb').innerHTML = fishBars(fishState(k)); document.getElementById('now').innerHTML = nums(`現在：${Math.floor(k / 10)} 整條又 ${k % 10} 段`); };
+    const change = d => { k = Math.max(0, Math.min(49, k + d)); sfx.hop(); draw(); };
+    document.getElementById('p1').onclick = () => change(10); document.getElementById('m1').onclick = () => change(-10);
+    document.getElementById('p2').onclick = () => change(1); document.getElementById('m2').onclick = () => change(-1);
+    draw();
+    document.getElementById('actions').innerHTML = '<button class="btn" id="ok">拿好了</button>';
+    document.getElementById('ok').onclick = () => {
+      if (k === q.n) return finish(graded(), 'count', nums(`對了！${q.text} 條就是 ${Math.floor(q.n / 10)} 整條又 ${q.n % 10} 段，一共 ${q.n} 個 0.1。`));
+      R.tries++; sfx.retry();
+      if (R.tries >= 3) return finish(0, { wrong: k, ans: q.n }, nums(`${q.text} 是 ${Math.floor(q.n / 10)} 整條又 ${q.n % 10} 段。`));
+      setMsg(nums(`看小數點：左邊 ${Math.floor(q.n / 10)} 是整條，右邊 ${q.n % 10} 是段。`), 'hint');
+    };
+    return;
   }
   if (q.mode === 'cmp') {
-    frame('哪一邊的魚乾比較多？', `<div class="vs col"><div class="ten-row"><b class="num">${q.l}</b>${tenths(q.a)}</div><div class="ten-row"><b class="num">${q.r}</b>${tenths(q.b, 'alt')}</div></div>`);
-    return pickOne([`上面 ${q.l}`, `下面 ${q.r}`].map(x => nums(x)), q.ans === 'L' ? 0 : 1, '先比幾整條，再比多出來的段數。', '對了！', 'cmp');
+    frame('點魚乾比較多的那一堆。', '<div class="trail">先比幾整條，再比多的段數</div>');
+    const card = (t, n) => `<span class="fish-card"><b class="num">${t}</b>${fishBars(fishState(n))}</span>`;
+    return pickOne([card(q.l, q.a), card(q.r, q.b)], q.ans === 'L' ? 0 : 1, '先比幾整條，再比多出來的段數。', '對了！', 'cmp');
   }
-  const opts = Logic.uniqueOptions(q.tenths, () => q.tenths + Logic.pick([-10, -2, -1, 1, 2, 10]));
-  const m = q.text.match(/([\d.]+)([＋－])([\d.]+)/), x = Math.round(+m[1] * 10), y = Math.round(+m[3] * 10);
-  frame('算一算，也可以看圖數段數：', `<div class="fill-text num">${esc(q.text)}</div><div class="vs col">${tenths(x)}<div class="ten-row"><span>${m[2] === '＋' ? '再加' : '拿走'}</span>${tenths(y, 'alt')}</div></div>`);
-  pickOne(opts.map(v => numBtn(d1(v))), opts.indexOf(q.tenths), q.why, `對了！${q.why}`, 'calc');
+  // 加法：一段一段放上去；減法：一段一段吃掉；做完才選答案
+  const m = q.text.match(/([\d.]+)([＋－])([\d.]+)/), x = Math.round(+m[1] * 10), y = Math.round(+m[3] * 10), add = m[2] === '＋';
+  frame(`${N(q.text)}<br>${add ? `再放 ${N(d1(y))} 條，就是 ${N(y)} 段。` : `吃掉 ${N(d1(y))} 條，就是 ${N(y)} 段。`}`, `<div id="fb"></div><div class="trail num" id="now"></div><div class="trade"><button id="step">${add ? '再放一段' : '吃掉一段'}</button></div>`);
+  const st = fishState(x); let done = 0;
+  const draw = () => {
+    document.getElementById('fb').innerHTML = fishBars(st);
+    const left = y - done;
+    document.getElementById('now').innerHTML = left > 0 ? nums(add ? `還要放 ${left} 段` : `還要吃 ${left} 段`) : '做完了，現在有多少？';
+  };
+  document.getElementById('step').onclick = () => {
+    if (done >= y) return;
+    if (add) st.push('b'); else { st[x - 1 - done] = 'g'; }
+    done++; sfx.hop(); draw();
+    if (done === y) {
+      document.getElementById('step').disabled = true;
+      const opts = Logic.uniqueOptions(q.tenths, () => q.tenths + Logic.pick([-10, -2, -1, 1, 2, 10]));
+      pickOne(opts.map(o => numBtn(d1(o))), opts.indexOf(q.tenths), '先數幾整條，再數多的段數。', `對了！${q.why}`, 'calc');
+    }
+  };
+  draw();
 }
 
 /* ---------- 十二：量量市集 ---------- */
