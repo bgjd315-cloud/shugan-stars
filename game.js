@@ -326,7 +326,7 @@ function bindKeypad(onOk) {
     b.onclick = () => {
       const k = b.dataset.k;
       if (k === 'del') val = val.slice(0, -1);
-      else if (k === 'ok') { if (val) onOk(+val, () => { val = ''; show(); }); return; }
+      else if (k === 'ok') { if (val) onOk(+val, () => { val = ''; show(); }); else { setMsg('先按數字，再按打勾。', 'hint'); sfx.retry(); } return; }
       else if (val.length < 5) val = (val + k).replace(/^0+(?=\d)/, '');
       show();
     };
@@ -435,22 +435,25 @@ function drawTruth(x, v) {
 }
 
 /* ---------- 共用：一步一步輸入、選一個 ---------- */
-function stepKeypad(asks, steps, why, doneMsg, detail, onStep) {
+function stepKeypad(asks, steps, why, doneMsg, detail, onStep, opts) {
+  // opts.shortcut：前面幾步只是幫忙拆解，直接答出最後答案也算對
   let step = 0;
-  const ask = () => { const a = document.getElementById('ask'); if (a) a.innerHTML = nums(asks[step]); };
+  const many = steps.length > 1, last = steps.length - 1;
+  const ask = () => { const a = document.getElementById('ask'); if (a) a.innerHTML = nums((many ? `第 ${step + 1} 步，共 ${steps.length} 步：` : '') + asks[step]); };
   ask();
+  const done = () => { lockKeypad(); finish(R.tries === 0 ? 2 : R.tries === 1 ? 1 : 0, detail, nums(doneMsg)); };
   bindKeypad((val, clear) => {
-    if (val === steps[step]) {
+    if (val === steps[step] || (opts && opts.shortcut && val === steps[last])) {
       sfx.ok(); clear();
-      if (step < steps.length - 1) { step++; ask(); if (onStep) onStep(step); return setMsg(nums(`對了，是 ${val}。`), 'good'); }
-      lockKeypad();
-      return finish(R.tries === 0 ? 2 : R.tries === 1 ? 1 : 0, detail, nums(doneMsg));
+      if (val === steps[last] && (step === last || (opts && opts.shortcut))) return done();
+      step++; ask(); if (onStep) onStep(step);
+      return setMsg(nums(`對了，是 ${val}。接著算下一步。`), 'good');
     }
     R.tries++; sfx.retry(); clear();
-    if (R.tries === 1) return setMsg(nums(why), 'hint');
-    if (R.tries === 2) return setMsg(nums(`再想一次。${why}`), 'hint');
+    const head = many ? `你按的 ${val} 不是這一步的答案。` : `你按的 ${val} 不對喔。`;
+    if (R.tries <= 2) return setMsg(nums(`${head}${why}`), 'hint');
     lockKeypad();
-    finish(0, { wrong: val, ans: steps[step] }, nums(`這一步是 ${steps[step]}。${why}`));
+    finish(0, { wrong: val, ans: steps[step] }, nums(`這一步是 ${steps[step]}，最後答案是 ${steps[last]}。${why}`));
   });
 }
 function pickOne(html, right, why, ok, detail) {
@@ -559,7 +562,7 @@ function viewFact(q) {
   }
   if (q.mode === 'two') {
     frame(q.head, '<div class="trail" id="ask"></div>', keypadHtml());
-    return stepKeypad(q.asks, q.steps, q.why, `對了！答案是 ${q.steps[q.steps.length - 1]}。`, 'two');
+    return stepKeypad(q.asks, q.steps, q.why, `對了！答案是 ${q.steps[q.steps.length - 1]}。`, 'two', null, { shortcut: true });
   }
   const row = q.parts.map((p, i) => `<span class="fbar p${i}" style="flex:${Math.max(p, q.a * .16)}">${'<span class="num">' + p + '</span>'}</span>`).join('');
   frame(`每條生產線做 ${N(q.a)} 個，<br>有 ${N(q.b)} 條，共幾個？`, `<div class="lines" id="lines">${Array.from({ length: q.b }, () => `<div class="fbars">${row}</div>`).join('')}</div><div class="trail" id="ask"></div>`, keypadHtml());
@@ -567,7 +570,7 @@ function viewFact(q) {
   if (q.parts.length > 1) { asks.push(`全部加起來：${steps.join('＋')}＝？`); steps.push(q.ans); }
   const lit = i => document.querySelectorAll('#lines .fbar').forEach(b => b.classList.toggle('lit', i >= q.parts.length || b.classList.contains('p' + i)));
   lit(0);
-  stepKeypad(asks, steps, q.why, `對了！${q.a}×${q.b}＝${q.ans}。`, 'split', lit);
+  stepKeypad(asks, steps, q.why, `對了！${q.a}×${q.b}＝${q.ans}。`, 'split', lit, { shortcut: true });
 }
 
 /* ---------- 四：毫米裁縫島 ---------- */
@@ -613,7 +616,7 @@ function viewMm(q) {
   if (q.mode === 'to') {
     const mm = q.ans, range = Math.min(160, (q.c + 1) * 10);
     frame(`緞帶長 ${nums(q.text)}，<br>是幾毫米？`, rulerSvg(range, mm, true) + '<div class="trail" id="ask"></div>', keypadHtml());
-    return stepKeypad([`${q.c} 公分是幾毫米？`, `再加 ${q.m} 毫米是多少？`], [q.c * 10, q.ans], q.why, `對了！是 ${q.ans} 毫米。`, 'to');
+    return stepKeypad([`${q.c} 公分是幾毫米？`, `再加 ${q.m} 毫米是多少？`], [q.c * 10, q.ans], q.why, `對了！是 ${q.ans} 毫米。`, 'to', null, { shortcut: true });
   }
   if (q.mode === 'from') {
     const range = Math.min(170, (q.steps[0] + 1) * 10);
@@ -681,7 +684,7 @@ function viewDiv(q) {
   if (q.mode === 'split') {
     frame(`${N(q.total)} 個貝殼分給 ${N(q.d)} 個人（${N(q.total + '÷' + q.d)}），<br>先分大包，再分小包。`, `<div class="fbars"><span class="fbar p0" style="flex:3"><span class="num">${q.parts[0]}</span></span><span class="fbar p1" style="flex:1"><span class="num">${q.parts[1]}</span></span></div><div class="boxes">${Array.from({ length: q.d }, () => '<div class="box person">🙂</div>').join('')}</div><div class="trail" id="ask"></div>`, keypadHtml());
     const [a, b] = q.parts.map(p => p / q.d);
-    return stepKeypad([`${q.parts[0]}÷${q.d}＝？`, `${q.parts[1]}÷${q.d}＝？`, `${a}＋${b}＝？`], [a, b, q.ans], q.why, `對了！${q.total}÷${q.d}＝${q.ans}。`, 'split');
+    return stepKeypad([`${q.parts[0]}÷${q.d}＝？`, `${q.parts[1]}÷${q.d}＝？`, `${a}＋${b}＝？`], [a, b, q.ans], q.why, `對了！${q.total}÷${q.d}＝${q.ans}。`, 'split', null, { shortcut: true });
   }
   if (q.mode === 'missing') {
     frame(`${q.say}`, `<div class="fill-text num">${esc(q.text)}</div><div class="groups">${Array.from({ length: q.n }, () => `<span class="box">${shellDots(q.per)}</span>`).join('')}</div><div class="trail" id="ask"></div>`, keypadHtml());
@@ -897,11 +900,11 @@ function viewArea(q) {
   }
   if (q.mode === 'cut') {
     frame('缺了一角的草地，<br>有幾平方公分？', `<div class="cake-wrap">${gridSvg(q.W, q.H, { w: q.cw, h: q.ch })}</div><div class="trail" id="ask"></div>`, keypadHtml());
-    return stepKeypad(['完整的長方形有幾格？', '缺的那一塊有幾格？', '剩下幾平方公分？'], [q.W * q.H, q.cw * q.ch, q.ans], '先算完整的，再減掉缺的那一塊。', `對了！${q.W * q.H}－${q.cw * q.ch}＝${q.ans}。`, 'cut');
+    return stepKeypad(['完整的長方形有幾格？', '缺的那一塊有幾格？', '剩下幾平方公分？'], [q.W * q.H, q.cw * q.ch, q.ans], '先算完整的，再減掉缺的那一塊。', `對了！${q.W * q.H}－${q.cw * q.ch}＝${q.ans}。`, 'cut', null, { shortcut: true });
   }
   const S = 28, W = q.w * S, H = q.h * S;
   frame(`長方形切一半變三角形，<br>三角形有幾平方公分？`, `<div class="cake-wrap"><svg class="grid-a" viewBox="0 0 ${W + 4} ${H + 4}" style="width:${Math.min(W + 4, 240)}px"><rect x="2" y="2" width="${W}" height="${H}" fill="none" stroke="#3d9970" stroke-width="2"/><polygon points="2,2 2,${H + 2} ${W + 2},${H + 2}" fill="#bfe3b4" stroke="#3d9970" stroke-width="2"/></svg></div><div class="trail">${nums(`長方形一排 ${q.w} 格，有 ${q.h} 排`)}</div><div class="trail" id="ask"></div>`, keypadHtml());
-  stepKeypad(['長方形有幾平方公分？', '三角形是一半，幾平方公分？'], [q.w * q.h, q.ans], '三角形是長方形的一半。', `對了！${q.w * q.h}÷2＝${q.ans}。`, 'half');
+  stepKeypad(['長方形有幾平方公分？', '三角形是一半，幾平方公分？'], [q.w * q.h, q.ans], '三角形是長方形的一半。', `對了！${q.w * q.h}÷2＝${q.ans}。`, 'half', null, { shortcut: true });
 }
 
 /* ---------- 十一：小數碼頭 ---------- */
@@ -992,7 +995,7 @@ function viewMeas(q) {
   const crate = (u, n) => `<span class="crate"><b class="num">1</b>${u}<small class="num">＝${n}</small></span>`;
   if (q.mode === 'to') {
     frame(`${nums(q.text)}，<br>是幾${q.unit}？`, `<div class="crates">${Array.from({ length: q.big }, () => crate(q.u1, q.per)).join('')}<span class="crate small"><b class="num">${q.small}</b>${q.unit}</span></div><div class="trail" id="ask"></div>`, keypadHtml());
-    return stepKeypad([`${q.big} ${q.u1}是幾${q.unit}？`, `再加 ${q.small} ${q.unit}是多少？`], [q.big * q.per, q.ans], q.why, `對了！是 ${q.ans} ${q.unit}。`, 'to');
+    return stepKeypad([`${q.big} ${q.u1}是幾${q.unit}？`, `再加 ${q.small} ${q.unit}是多少？`], [q.big * q.per, q.ans], q.why, `對了！是 ${q.ans} ${q.unit}。`, 'to', null, { shortcut: true });
   }
   if (q.mode === 'from') {
     frame(`${nums(q.text)}，<br>是幾${q.u1}幾${q.u2}？`, `<div class="crates"><span class="crate ghost">每裝滿 <b class="num">${q.per}</b> ${q.u2}<br>就是 <b class="num">1</b> ${q.u1}</span></div><div class="trail" id="ask"></div>`, keypadHtml());
