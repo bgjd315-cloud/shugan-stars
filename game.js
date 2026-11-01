@@ -34,7 +34,7 @@ function load() {
   return null;
 }
 const PIECE_KEYS = ['port', 'ship', 'fact', 'mm', 'angle', 'div', 'rule', 'frac', 'circle']; // 九塊碎片的島，集滿才開最後一關
-const S = Object.assign({ stars: 0, unit: 5, sound: true, rec: {}, log: [], opened: false, prog: {}, bossDone: false, bossSeen: false, stamps: {} }, load() || {});
+const S = Object.assign({ stars: 0, unit: 5, sound: true, rec: {}, log: [], opened: false, prog: {}, bossDone: false, bossSeen: false, stamps: {}, fast: {} }, load() || {});
 S.unit = 20; // 全部單元開放
 function save() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) {} }
 const rec = g => S.rec[g] || (S.rec[g] = { lv: 0, up: 0, down: 0 });
@@ -133,6 +133,7 @@ function nextQ() {
 function finish(grade, detail, msgHtml) {
   const r = rec(R.game);
   if (R.fixedLv === undefined) Logic.adjust(r, grade, Logic.maxLevel(R.game, S.unit)); // 練習場不動等級
+  if (R.q && (R.q.kind === 'frac' || R.q.kind === 'deci')) { const fk = R.q.kind + ':' + R.q.mode; S.fast[fk] = grade === 2 ? (S.fast[fk] || 0) + 1 : 0; } // 熟練紀錄
   R.grades.push(grade); R.earned += grade * 25; S.stars += grade * 25;
   S.log.push({ g: R.game, lv: r.lv, gr: grade, d: detail, t: Date.now() });
   if (S.log.length > 300) S.log = S.log.slice(-300);
@@ -721,8 +722,21 @@ function piesHtml(n, states) { // 超過一個派就畫下一個
   return out.join('');
 }
 const pieWith = (n, a) => `<span class="pie-w">${pieSvg(n, Array.from({ length: n }, (_, i) => i < a ? 'a' : ''))}${fracHtml(a, n)}</span>`;
+// 同一種操作題連續 3 次第一次就對，就跳過操作；答錯一次就回到動手做
+const isFast = q => ((S.fast || {})[q.kind + ':' + q.mode] || 0) >= 3;
 function viewFrac(q) {
-  const graded = () => R.tries === 0 ? 2 : R.tries === 1 ? 1 : 0;
+  const graded = () => R.tries === 0 ? 2 : R.tries === 1 ? 1 : 0, fast = isFast(q);
+  if ((q.mode === 'unit' || q.mode === 'name') && fast) {
+    const set = new Set([q.n]); for (const x of Logic.shuffle([q.a + 1, q.a + 2, q.a + 3, q.a + 4])) if (set.size < 3) set.add(x); // 分母一定比分子大，不可用隨機重抽，11/12 會卡死
+    const opts = Logic.shuffle([...set]);
+    frame('紅色是幾分之幾個派？', `<div class="cake-wrap">${pieSvg(q.n, Array.from({ length: q.n }, (_, i) => i < q.a ? 'a' : ''))}</div>`);
+    return pickOne(opts.map(x => fracHtml(q.a, x)), opts.indexOf(q.n), '數數看全部幾塊，那就是分母。', `對了！平分成 ${q.n} 塊，紅色 ${q.a} 塊。`, 'name');
+  }
+  if (q.mode === 'accum' && fast) {
+    const alts = [[q.a, q.n], [q.a < q.n ? q.a + 1 : q.a - 1, q.n], [1, q.n]], opts = Logic.shuffle(alts);
+    frame(`${N(q.a)} 個 ${fracHtml(1, q.n)} 是多少？`, `<div class="cake-wrap">${pieSvg(q.n, Array.from({ length: q.n }, (_, i) => i < q.a ? 'a' : ''))}</div>`);
+    return pickOne(opts.map(o => fracHtml(o[0], o[1])), opts.indexOf(alts[0]), '分母不變，幾個 1/幾，分子就是幾。', q.whole ? `對了！${q.n} 個 1/${q.n} 就是 1 個完整的派。` : `對了！就是 ${q.a}/${q.n}。`, 'accum');
+  }
   if (q.mode === 'unit' || q.mode === 'name') {
     // 一塊一塊點著數，再自己組出分數
     frame('紅色是幾分之幾個派？<br>點派一塊一塊數，再調整分數。', `<div class="pie-row"><div id="pp"></div><div class="fb">
@@ -750,15 +764,17 @@ function viewFrac(q) {
   }
   if (q.mode === 'make') {
     // 自己切派、自己拿
-    frame(`客人要 ${fracHtml(q.a, q.n)} 個派。<br>先切好，再點要給客人的塊。`, `<div class="cake-wrap" id="pp"></div><div class="trade"><button id="less">少切一刀</button><button id="more">多切一刀</button></div><div class="trail num" id="now"></div>`);
-    let n = 1; const on = new Set();
+    frame(`客人要 ${fracHtml(q.a, q.n)} 個派。<br>${fast ? '派切好了，' : '先切好，再'}點要給客人的塊。`, `<div class="cake-wrap" id="pp"></div>${fast ? '' : '<div class="trade"><button id="less">少切一刀</button><button id="more">多切一刀</button></div>'}<div class="trail num" id="now"></div>`);
+    let n = fast ? q.n : 1; const on = new Set();
     const draw = () => {
       document.getElementById('pp').innerHTML = pieSvg(n, Array.from({ length: n }, (_, i) => on.has(i) ? 'a' : ''));
       document.getElementById('now').innerHTML = nums(`切成 ${n} 塊，拿了 ${on.size} 塊`);
       document.querySelectorAll('#pp [data-s]').forEach(s => s.onclick = () => { const i = +s.dataset.s; on.has(i) ? on.delete(i) : on.add(i); sfx.hop(); draw(); });
     };
-    document.getElementById('more').onclick = () => { if (n < 12) { n++; on.clear(); sfx.hop(); draw(); } };
-    document.getElementById('less').onclick = () => { if (n > 1) { n--; on.clear(); sfx.hop(); draw(); } };
+    if (!fast) {
+      document.getElementById('more').onclick = () => { if (n < 12) { n++; on.clear(); sfx.hop(); draw(); } };
+      document.getElementById('less').onclick = () => { if (n > 1) { n--; on.clear(); sfx.hop(); draw(); } };
+    }
     draw();
     document.getElementById('actions').innerHTML = '<button class="btn" id="ok">端給客人</button>';
     document.getElementById('ok').onclick = () => {
@@ -795,8 +811,8 @@ function viewFrac(q) {
   }
   // 加法：一塊一塊放進去；減法：一塊一塊吃掉；動手做完才回答
   const add = q.mode === 'add', st = Array.from({ length: add ? q.a : q.a }, () => 'a');
-  frame(`${fracHtml(q.a, q.n)} ${add ? '＋' : '－'} ${fracHtml(q.b, q.n)}<br>${add ? `再放 ${N(q.b)} 塊上去。` : `點派，吃掉 ${N(q.b)} 塊。`}`,
-    `<div class="vs" id="pp"></div>${add ? '<div class="trade"><button id="put">再放一塊</button></div>' : ''}<div class="trail num" id="now"></div><div id="kp" hidden>${keypadHtml()}</div><div class="trail" id="ask" hidden></div>`);
+  frame(`${fracHtml(q.a, q.n)} ${add ? '＋' : '－'} ${fracHtml(q.b, q.n)}<br>${fast ? '算算看，現在有幾塊？' : add ? `再放 ${N(q.b)} 塊上去。` : `點派，吃掉 ${N(q.b)} 塊。`}`,
+    `<div class="vs" id="pp"></div>${add && !fast ? '<div class="trade"><button id="put">再放一塊</button></div>' : ''}<div class="trail num" id="now"></div><div id="kp" hidden>${keypadHtml()}</div><div class="trail" id="ask" hidden></div>`);
   let done = 0, opened = false;
   const pad = arr => { const out = arr.slice(); while (out.length % q.n) out.push(''); return out; };
   const open = () => {
@@ -810,6 +826,11 @@ function viewFrac(q) {
     document.getElementById('now').innerHTML = left > 0 ? nums(add ? `還要放 ${left} 塊` : `還要吃 ${left} 塊`) : nums(add ? '放好了！' : '吃完了！');
     if (!add) document.querySelectorAll('#pp [data-s]').forEach(s => s.onclick = () => { const i = +s.dataset.s; if (st[i] === 'a' && done < q.b) { st[i] = 'g'; done++; sfx.hop(); draw(); if (done === q.b) open(); } });
   };
+  if (fast) {
+    for (let i = 0; i < q.b; i++) { if (add) st.push('b'); else st[q.a - 1 - i] = 'g'; }
+    done = q.b; draw(); document.getElementById('now').innerHTML = ''; open();
+    return;
+  }
   if (add) document.getElementById('put').onclick = () => { if (done < q.b) { st.push('b'); done++; sfx.hop(); draw(); if (done === q.b) { document.getElementById('put').disabled = true; open(); } } };
   draw();
 }
@@ -884,7 +905,15 @@ function fishBars(states) { // 每 10 段一條；a 原本、b 加上去、g 吃
 }
 const fishState = (n, s) => Array.from({ length: n }, () => s || 'a');
 function viewDeci(q) {
-  const d1 = n => (n / 10).toFixed(1), graded = () => R.tries === 0 ? 2 : R.tries === 1 ? 1 : 0;
+  const d1 = n => (n / 10).toFixed(1), graded = () => R.tries === 0 ? 2 : R.tries === 1 ? 1 : 0, fast = isFast(q);
+  if (q.mode === 'color' && fast) {
+    frame(`${N(d1(q.a))} 條魚乾是幾段？`, `${fishBars([])}<div class="trail">一段是 0.1</div><div class="trail" id="ask"></div>`, keypadHtml());
+    return stepKeypad(['幾段？'], [q.a], '小數點後面的數字就是幾段。', `對了！${d1(q.a)} 就是 ${q.a} 個 0.1。`, 'color');
+  }
+  if (q.mode === 'count' && fast) {
+    frame(`${N(q.text)} 裡面有幾個 ${N('0.1')}？`, `<div class="trail">一整條是 10 段</div><div class="trail" id="ask"></div>`, keypadHtml());
+    return stepKeypad(['幾個？'], [q.n], `${Math.floor(q.n / 10)} 整條是 ${Math.floor(q.n / 10) * 10} 段，再加 ${q.n % 10} 段。`, `對了！${q.text} 是 ${q.n} 個 0.1。`, 'count');
+  }
   if (q.mode === 'color') {
     // 點到第幾段就拿到第幾段，小數跟著變
     frame(`一條魚乾平分成 10 段，<br>一段是 ${N('0.1')}。拿出 ${N(d1(q.a))} 條。`, `<div class="fcells" id="cells">${Array.from({ length: 10 }, (_, i) => `<button class="fcell" data-c="${i}" aria-label="拿到第 ${i + 1} 段"></button>`).join('')}</div><div class="trail num" id="now"></div>`);
@@ -926,22 +955,27 @@ function viewDeci(q) {
   }
   // 加法：一段一段放上去；減法：一段一段吃掉；做完才選答案
   const m = q.text.match(/([\d.]+)([＋－])([\d.]+)/), x = Math.round(+m[1] * 10), y = Math.round(+m[3] * 10), add = m[2] === '＋';
-  frame(`${N(q.text)}<br>${add ? `再放 ${N(d1(y))} 條，就是 ${N(y)} 段。` : `吃掉 ${N(d1(y))} 條，就是 ${N(y)} 段。`}`, `<div id="fb"></div><div class="trail num" id="now"></div><div class="trade"><button id="step">${add ? '再放一段' : '吃掉一段'}</button></div>`);
+  frame(`${N(q.text)}<br>${fast ? '現在有多少？' : add ? `再放 ${N(d1(y))} 條，就是 ${N(y)} 段。` : `吃掉 ${N(d1(y))} 條，就是 ${N(y)} 段。`}`, `<div id="fb"></div><div class="trail num" id="now"></div>${fast ? '' : `<div class="trade"><button id="step">${add ? '再放一段' : '吃掉一段'}</button></div>`}`);
   const st = fishState(x); let done = 0;
   const draw = () => {
     document.getElementById('fb').innerHTML = fishBars(st);
     const left = y - done;
     document.getElementById('now').innerHTML = left > 0 ? nums(add ? `還要放 ${left} 段` : `還要吃 ${left} 段`) : '做完了，現在有多少？';
   };
+  const ask = () => {
+    const opts = Logic.uniqueOptions(q.tenths, () => q.tenths + Logic.pick([-10, -2, -1, 1, 2, 10]));
+    pickOne(opts.map(o => numBtn(d1(o))), opts.indexOf(q.tenths), '先數幾整條，再數多的段數。', `對了！${q.why}`, 'calc');
+  };
+  if (fast) {
+    for (let i = 0; i < y; i++) { if (add) st.push('b'); else st[x - 1 - i] = 'g'; }
+    done = y; draw(); document.getElementById('now').innerHTML = ''; ask();
+    return;
+  }
   document.getElementById('step').onclick = () => {
     if (done >= y) return;
     if (add) st.push('b'); else { st[x - 1 - done] = 'g'; }
     done++; sfx.hop(); draw();
-    if (done === y) {
-      document.getElementById('step').disabled = true;
-      const opts = Logic.uniqueOptions(q.tenths, () => q.tenths + Logic.pick([-10, -2, -1, 1, 2, 10]));
-      pickOne(opts.map(o => numBtn(d1(o))), opts.indexOf(q.tenths), '先數幾整條，再數多的段數。', `對了！${q.why}`, 'calc');
-    }
+    if (done === y) { document.getElementById('step').disabled = true; ask(); }
   };
   draw();
 }
@@ -1079,7 +1113,7 @@ function viewParent() {
   </div>`;
   document.getElementById('snd').onchange = e => { S.sound = e.target.checked; save(); };
   document.getElementById('reset').onclick = () => {
-    if (confirm('確定清除所有星星和紀錄？')) { S.stars = 0; S.rec = {}; S.log = []; S.prog = {}; S.opened = false; S.bossDone = false; S.bossSeen = false; S.s2Seen = false; S.stamps = {}; save(); viewParent(); }
+    if (confirm('確定清除所有星星和紀錄？')) { S.stars = 0; S.rec = {}; S.log = []; S.prog = {}; S.opened = false; S.bossDone = false; S.bossSeen = false; S.s2Seen = false; S.stamps = {}; S.fast = {}; save(); viewParent(); }
   };
   document.getElementById('out').onclick = () => go('');
 }
