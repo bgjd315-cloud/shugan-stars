@@ -144,6 +144,8 @@ function finish(grade, detail, msgHtml) {
   const a = document.getElementById('actions');
   a.innerHTML = `<button class="btn" id="next">${R.i >= ROUND ? '看成果' : '下一題'}</button>`;
   document.getElementById('next').onclick = nextQ;
+  document.querySelectorAll('.keypad, .entry').forEach(x => { x.style.display = 'none'; }); // 答完收起鍵盤，下一題才不會被擠到畫面外
+  a.scrollIntoView({ block: 'nearest' });
 }
 function setMsg(html, cls) {
   const m = document.getElementById('msg');
@@ -661,7 +663,9 @@ function viewDiv(q) {
     const draw = () => {
       document.getElementById('pile').innerHTML = left ? shellDots(left) : '<span class="note">分完了！</span>';
       document.getElementById('boxes').innerHTML = Array.from({ length: q.b }, () => `<div class="box">${shellDots(rounds)}</div>`).join('');
-      document.getElementById('deal').disabled = left < q.b;
+      const more = left >= q.b;
+      document.getElementById('deal').style.display = more ? '' : 'none';
+      if (!more && !R.tries) { setMsg(q.r ? `分不夠一輪了！每人有幾個？剩下幾個？按下面的數字回答。` : '分完了！數一數每人幾個，按下面的數字回答。', 'good'); document.getElementById('entry').scrollIntoView({ block: 'nearest' }); }
     };
     document.getElementById('deal').onclick = () => { if (left >= q.b) { left -= q.b; rounds++; sfx.hop(); draw(); } };
     draw();
@@ -818,6 +822,7 @@ function viewFrac(q) {
   const open = () => {
     if (opened) return; opened = true;
     document.getElementById('kp').hidden = false; document.getElementById('ask').hidden = false;
+    setMsg('數一數，按下面的數字回答。', 'good'); document.getElementById('kp').scrollIntoView({ block: 'nearest' });
     stepKeypad([`現在有幾塊？（答案是 □/${q.n}）`], [q.ans], `數一數${add ? '紅色和橘色' : '還留著的紅色'}共幾塊。`, `對了！答案是 ${q.ans}/${q.n}${q.ans === q.n ? '，剛好 1 個派' : q.ans > q.n ? `，比 1 個派多 ${q.ans - q.n} 塊` : ''}。`, q.mode);
   };
   const draw = () => {
@@ -965,6 +970,7 @@ function viewDeci(q) {
   const ask = () => {
     const opts = Logic.uniqueOptions(q.tenths, () => q.tenths + Logic.pick([-10, -2, -1, 1, 2, 10]));
     pickOne(opts.map(o => numBtn(d1(o))), opts.indexOf(q.tenths), '先數幾整條，再數多的段數。', `對了！${q.why}`, 'calc');
+    setMsg('現在有多少？點下面的答案。', 'good'); document.getElementById('actions').scrollIntoView({ block: 'nearest' });
   };
   if (fast) {
     for (let i = 0; i < y; i++) { if (add) st.push('b'); else st[x - 1 - i] = 'g'; }
