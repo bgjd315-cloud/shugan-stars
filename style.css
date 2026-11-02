@@ -565,6 +565,38 @@ body { line-height: 1.75; }
 .tap-c { cursor: pointer; }
 .seq-t td.here { background: #ffd65a; font-weight: 700; }
 
+/* 新概念小故事 */
+.term { color: #c23a5e; background: #ffe680; padding: 0 3px; border-radius: 5px; white-space: nowrap; animation: termglow .8s ease-in-out 3; }
+@keyframes termglow { 50% { background: #ffc93c; } }
+@keyframes termpop { 40% { transform: scale(1.12); } }
+.tagrow { display: flex; justify-content: center; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+.termtag { background: #33405a; color: #fff; border-radius: 16px; padding: 3px 12px; font-size: 17px; animation: termpop 1.1s ease-in-out infinite; }
+.cp { touch-action: none; min-height: 110px; cursor: grab; }
+.cp2 { min-height: 90px; }
+.c3p { position: relative; width: 100%; max-width: 340px; margin: 0 auto; }
+.c3s { display: block; width: 100%; height: auto; }
+.c3s .c3n { font-family: inherit; font-weight: 700; }
+.c3l { position: absolute; transform: translate(-50%, -50%); white-space: nowrap; font-size: 15px; line-height: 1.1; pointer-events: none; }
+.c3l.stick { background: #33405a; color: #fff; border-radius: 12px; padding: 2px 8px; font-size: 16px; box-shadow: 0 2px 5px rgba(0,0,0,.25); }
+.skip5 { display: block; margin: 6px auto 0; background: none; border: 0; color: var(--soft); text-decoration: underline; font: inherit; font-size: 15px; padding: 4px 12px; }
+.prompt small { font-size: 16px; color: var(--soft); }
+
+/* 聲調放大：小字元件的注音也要看得清楚 */
+.sem .bp { font-size: 10px; width: 1.85em; padding-right: .85em; }
+.dock .bp { font-size: 10.5px; }
+.pan-t .bp { font-size: 11px; }
+.c3l .bp { font-size: 11px; }
+
+.top .dots { gap: 4px; min-width: 0; }
+.top .dots i { width: 12px; height: 12px; }
+.top { gap: 6px; }
+.u-item { flex-wrap: wrap; row-gap: 0; column-gap: 1px; }
+.u-item .u-e { margin-right: 8px; }
+
+/* 聲調再放大 */
+.bp .tone { font-size: 1.6em; width: .8em; line-height: .8; opacity: 1; }
+.bp .qing { font-size: 1.5em; }
+
 /* 單元數感測驗 */
 .quiz-entry { position: relative; z-index: 2; display: flex; align-items: center; gap: 10px; width: 100%; background: rgba(255,253,247,.97); border-radius: 16px; border-bottom: 4px solid #d8c9a6; padding: 8px 14px; margin-bottom: 10px; min-height: 58px; }
 .quiz-entry b { font-size: 21px; flex: 1; text-align: left; }

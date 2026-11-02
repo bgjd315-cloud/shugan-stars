@@ -127,7 +127,7 @@ function nextQ() {
   do { q = Logic.gen(R.game, R.fixedLv !== undefined ? R.fixedLv : rec(R.game).lv, S.unit); } while (R.lastKey === JSON.stringify(q) && guard++ < 8);
   R.lastKey = JSON.stringify(q);
   R.q = q; R.tries = 0;
-  VIEWS[R.game](q);
+  conceptThen(q, () => VIEWS[R.game](q));
 }
 // 一題結束：grade 2 第一次就很棒、1 第二次或差一點、0 沒答出來
 const reveal = sel => setTimeout(() => { const e = document.querySelector(sel); if (e) e.scrollIntoView({ block: 'nearest' }); }, 40); // 等注音排好才捲動，字變高才不會又把按鈕擠出去
@@ -164,13 +164,14 @@ function frame(promptHtml, stageHtml, extra) {
     <div class="top">
       <button class="icon-btn" id="home" aria-label="回小鎮">⌂</button>
       <div class="dots">${dots}</div><span class="sem">${semOf(R.q)}</span>
-      <button class="icon-btn" id="say" aria-label="唸題目">🔊</button>
+      ${conceptsOf(R.game).length ? '<button class="icon-btn" id="cpt" aria-label="新概念小故事">💡</button>' : ''}<button class="icon-btn" id="say" aria-label="唸題目">🔊</button>
     </div>
     <div class="say-row">${artImg(R.boss ? 'mimi' : R.daily ? 'liang' : STORY[R.game].who, 'say-who')}<div class="prompt" id="prompt">${promptHtml}</div></div>
     <div class="stage" id="stage">${stageHtml}</div>
     <div class="msg" id="msg"></div>
     ${extra || ''}
     <div class="actions" id="actions"></div>`;
+  { const c5 = document.getElementById('cpt'); if (c5) c5.onclick = () => viewConcepts(R.game, () => VIEWS[R.game](R.q)); }
   document.getElementById('home').onclick = () => { R = null; go(''); };
   document.getElementById('say').onclick = () => speak(plainText(document.getElementById('prompt')));
 }
@@ -300,8 +301,9 @@ function viewPractice() {
     const ts = practiceTopics().filter(t => t[0] === k);
     return ts.length ? `<h3 class="pg-h">${GAMES[k].name}<span class="sem">${GAMES[k].sem}</span></h3><div class="pg">${ts.map(t => `<button class="pg-btn" data-g="${t[0]}" data-l="${t[1]}"><span class="sem">${t[3] >= 11 ? '三下' : '三上'}</span>${nums(t[2])}</button>`).join('')}</div>` : '';
   }).join('');
-  $app.innerHTML = `<div class="top"><button class="icon-btn" id="home" aria-label="回小鎮">⌂</button><h2 class="page-h">練習場</h2></div><p class="tag">想多練哪一個？</p><h3 class="pg-h">單位的量感</h3><div class="pg">${Object.entries(LESSONS).map(([k, L]) => `<button class="pg-btn" data-ud="${k}"><span class="sem">${L.sem}</span>${L.title}</button>`).join("")}</div>${groups}`;
+  $app.innerHTML = `<div class="top"><button class="icon-btn" id="home" aria-label="回小鎮">⌂</button><h2 class="page-h">練習場</h2></div><p class="tag">想多練哪一個？</p><button class="lesson-entry" id="cptAll"><span>💡</span><b>新概念小故事</b><small>可以重看</small></button><h3 class="pg-h">單位的量感</h3><div class="pg">${Object.entries(LESSONS).map(([k, L]) => `<button class="pg-btn" data-ud="${k}"><span class="sem">${L.sem}</span>${L.title}</button>`).join("")}</div>${groups}`;
   document.getElementById('home').onclick = () => go('');
+  document.getElementById('cptAll').onclick = () => viewConcepts(null, viewPractice);
   document.querySelectorAll('.pg-btn[data-g]').forEach(b => b.onclick = () => startRound(b.dataset.g, { lv: +b.dataset.l }));
   document.querySelectorAll('[data-ud]').forEach(b => b.onclick = () => runDrill(b.dataset.ud, viewPractice));
 }
@@ -1270,7 +1272,7 @@ function runLesson(key, then) {
     document.getElementById('actions').innerHTML = '<button class="btn" id="end">好！</button>';
     document.getElementById('end').onclick = leave;
   }
-  cards();
+  storyFirst(key, cards, leave);
 }
 // 單位練習：sort 替東西選單位、order 由小排到大、quiz 大約多少
 function unitDrill(key, plan, leave, done) {
@@ -1342,13 +1344,309 @@ function lessonsThen(ch, then) {
   const need = (LESSON_BEFORE[ch] || []).find(k => !(S.learned || {})[k]);
   if (!need) return then();
   const L = LESSONS[need];
-  lessonFrame(L, `先認識${L.title}的單位，<br>等一下用起來就不怕了！`, `<div class="u-big">${L.icon}</div>`);
+  storyFirst(need, () => {
+  lessonFrame(L, `${L.title}的單位到底有多大？<br>去單位教室感覺一下！`, `<div class="u-big">${L.icon}</div>`);
   document.getElementById('out').onclick = () => go('');
   document.getElementById('actions').innerHTML = '<button class="btn" id="yes">去上課</button><button class="btn alt" id="no">先跳過</button>';
   document.getElementById('yes').onclick = () => runLesson(need, () => lessonsThen(ch, then));
   document.getElementById('no').onclick = then;
+  }, () => go(''));
 }
 
+/* ---------- 新概念小故事：情境提問 → 動手試（不出現新詞）→ 命名並貼回圖上 → 換情境用新詞答一題，答錯回操作 ---------- */
+// 圖裡的中文一律用 HTML 標籤（c3s 的 labs），SVG 的 text 不會加注音，只放數字和符號
+const cT = w => `<b class="term">${w}</b>`;
+const c3s = (inner, labs, vb) => { const [w, h] = vb || [320, 170]; return `<div class="c3p"><svg class="c3s" viewBox="0 0 ${w} ${h}">${inner}</svg>${(labs || []).map(l => `<span class="c3l ${l[3] || 'plain'}" style="left:${l[1] / w * 100}%;top:${l[2] / h * 100}%">${nums(l[0])}</span>`).join('')}</div>`; };
+const c3e = (x, y, e, s) => `<text x="${x}" y="${y}" font-size="${s || 22}" text-anchor="middle" dominant-baseline="central">${e}</text>`;
+const c3t = (x, y, t, s, f) => `<text class="c3n" x="${x}" y="${y}" font-size="${s || 18}" text-anchor="middle" dominant-baseline="central" fill="${f || '#33405a'}">${t}</text>`;
+const c3L = (a, v) => { const i = Math.min(Math.floor(v), a.length - 1), j = Math.min(i + 1, a.length - 1), t = v - i; return a[i] + (a[j] - a[i]) * t; };
+const c3sec = (cx, cy, r, a0, a1, fill) => { const p = a => [cx + r * Math.sin(a * Math.PI / 180), cy - r * Math.cos(a * Math.PI / 180)], [x0, y0] = p(a0), [x1, y1] = p(a1); return `<path d="M${cx} ${cy}L${x0} ${y0}A${r} ${r} 0 ${a1 - a0 > 180 ? 1 : 0} 1 ${x1} ${y1}Z" fill="${fill}" stroke="#7a5b2e" stroke-width="2"/>`; };
+const c3pie = (cx, cy, r, n, a) => { let o = ''; for (let i = 0; i < n; i++) o += c3sec(cx, cy, r, i * 360 / n, (i + 1) * 360 / n, i < a ? '#f08a8a' : '#fff0cf'); return o; };
+const c3frac = (x, y, a, n, s) => c3t(x, y - (s || 26) * .62, a, s || 26) + `<path d="M${x - 16} ${y}H${x + 16}" stroke="#33405a" stroke-width="3"/>` + c3t(x, y + (s || 26) * .62, n, s || 26);
+function c3deal(total, b, dealt) { // 上面是還沒分的貝殼，下面每人一個盤子
+  let o = ''; const left = total - dealt;
+  for (let i = 0; i < left; i++) o += c3e(160 + (i - (left - 1) / 2) * 21, 20, '🐚', 17);
+  const dx = 300 / b;
+  for (let p = 0; p < b; p++) {
+    const x = 10 + dx * p + dx / 2, cnt = Math.floor((dealt + b - 1 - p) / b);
+    o += c3e(x, 58, '🙂', 22) + `<rect x="${x - dx / 2 + 5}" y="76" width="${dx - 10}" height="88" rx="12" fill="#fff6e3" stroke="#e6d8bb" stroke-width="2"/>`;
+    for (let i = 0; i < cnt; i++) o += c3e(x - 20 + (i % 3) * 20, 92 + Math.floor(i / 3) * 24, '🐚', 17);
+  }
+  return o;
+}
+function c3angle(d, l, labs, ref, cx, cy, fill) { // 頂點在 (cx,cy)，一條邊水平
+  cx = cx === undefined ? 70 : cx; cy = cy === undefined ? 145 : cy; const r = d * Math.PI / 180, x = cx + l * Math.cos(r), y = cy - l * Math.sin(r), ax = cx + 26 * Math.cos(r), ay = cy - 26 * Math.sin(r);
+  return `${ref ? `<rect x="${cx}" y="${cy - 80}" width="80" height="80" fill="#a9d0f0" fill-opacity=".5" stroke="#3b82c4" stroke-dasharray="5 4" stroke-width="2"/>` : ''}<path d="M${cx + 26} ${cy}A26 26 0 0 0 ${ax} ${ay}L${cx} ${cy}Z" fill="${fill || '#f4a9a0'}"/><path d="M${cx + l} ${cy}L${cx} ${cy}L${x} ${y}" fill="none" stroke="#33405a" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>`;
+}
+const c3line = (v, max, labels, boat) => { const X = i => 20 + 280 * i / max; let o = `<path d="M8 105H312" stroke="#33405a" stroke-width="4"/>`; for (let i = 0; i <= max; i++) o += `<path d="M${X(i)} 96V114" stroke="#33405a" stroke-width="3"/>` + (labels ? c3t(X(i), 132, labels(i), 16) : ''); return o + boat(X(v)); };
+const c3board = (cols, x0, y0, w) => cols.map((c, i) => `<rect x="${x0 + i * w}" y="${y0}" width="${w}" height="38" fill="${c[1] || '#fffdf7'}" stroke="#33405a" stroke-width="2"/>${c3t(x0 + i * w + w / 2, y0 + 19, c[0], 22)}`).join('');
+const C3_T = [[5, 3], [7, 4], [6, 2]];
+function c3table(v, hi) { // 橫的是班級，直的是天氣
+  let o = ''; const x0 = 90, y0 = 42, w = 90, h = 38, put = Math.floor(v * 3 + .01), flat = [];
+  C3_T.forEach((r, i) => r.forEach((n, j) => flat.push([i, j, n])));
+  for (let i = 0; i < 3; i++) for (let j = 0; j < 2; j++) o += `<rect x="${x0 + j * w}" y="${y0 + i * h}" width="${w}" height="${h}" fill="${hi && i === 1 && j === 1 ? '#ffe680' : '#fffdf7'}" stroke="#33405a" stroke-width="2"/>`;
+  flat.forEach(([i, j, n], k) => { const done = k < put; o += c3t(done ? x0 + j * w + w / 2 : 296 - (k % 2) * 16, done ? y0 + i * h + h / 2 : 30 + k * 24, n, 22, done ? '#33405a' : '#d6476b'); });
+  return c3s(o, [['一班', 45, 61], ['二班', 45, 99], ['三班', 45, 137], ['晴天', 135, 22], ['雨天', 225, 22]]);
+}
+const c3fish = (x, y, w, n, a, whole) => { let o = ''; const d = w / n; for (let i = 0; i < n; i++) o += `<rect x="${x + i * d}" y="${y}" width="${d}" height="30" fill="${whole || i < a ? '#e8a35c' : '#fff'}" stroke="#a9702a" stroke-width="${n > 1 ? 1.5 : 2.5}"/>`; return o; };
+function c3ruler(v) { // 尺：放大後才看得見 1 公分裡的小格
+  const z = c3L([28, 44, 58], v), X = c => 20 + (c - (v >= 1 ? 3.6 : 3.6 - 1.2 * (1 - v)) ) * z * 1; let o = `<rect x="8" y="88" width="304" height="52" fill="#f7dc8c" stroke="#a9702a" stroke-width="2"/>`;
+  for (let c = 0; c <= 9; c++) { const x = X(c); if (x < 8 || x > 312) continue; o += `<path d="M${x} 88v26" stroke="#33405a" stroke-width="3"/>` + c3t(x, 127, c, 17); }
+  if (v > .3) for (let m = 0; m <= 90; m++) { if (m % 10 === 0) continue; const x = X(m / 10); if (x < 8 || x > 312) continue; o += `<path d="M${x} 88v13" stroke="#33405a" stroke-width="1.5" opacity="${Math.min(1, (v - .3) * 2)}"/>`; }
+  return o + `<rect x="8" y="50" width="${X(4.3) - 8}" height="24" fill="#e0607e"/><path d="M${X(4.3)} 40V140" stroke="#3b82c4" stroke-width="2.5"/>` + (v >= 1.5 ? `<rect x="${X(4)}" y="84" width="${X(4.3) - X(4)}" height="20" fill="#d6476b" fill-opacity=".35"/>` : '');
+}
+const c3clock = (sec, labs) => { let o = `<circle cx="160" cy="85" r="78" fill="#fff" stroke="#33405a" stroke-width="5"/>`; for (let i = 0; i < 60; i += 5) { const a = i * 6 * Math.PI / 180; o += `<path d="M${160 + 68 * Math.sin(a)} ${85 - 68 * Math.cos(a)}L${160 + 76 * Math.sin(a)} ${85 - 76 * Math.cos(a)}" stroke="#33405a" stroke-width="3"/>`; } const a = sec * 6 * Math.PI / 180; o += `<path d="M160 85V30" stroke="#33405a" stroke-width="6" stroke-linecap="round"/><path d="M160 85L${160 + 70 * Math.sin(a)} ${85 - 70 * Math.cos(a)}" stroke="#d6476b" stroke-width="3" stroke-linecap="round"/><circle cx="160" cy="85" r="6" fill="#33405a"/>`; return c3s(o, labs); };
+const c3bucket = (x, lv) => `<path d="M${x} 60L${x + 8} 160H${x + 82}L${x + 90} 60Z" fill="#fff" stroke="#33405a" stroke-width="3"/><path d="M${x + 8 - 8 * lv * 0} ${160 - 96 * lv}H${x + 82}V160H${x + 8}Z" fill="#6ea8dc" opacity=".8"/>`;
+const c3cells = (x, y, w, h, s, on, col) => { let o = ''; for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) o += `<rect x="${x + i * s}" y="${y + j * s}" width="${s}" height="${s}" fill="${j * w + i < on ? col : '#fff'}" stroke="#7a9a62" stroke-width="1.5"/>`; return o; };
+const C3_CUT = [[200, 100, 60], [160, 110, 90], [120, 120, 120]];
+const CONCEPTS = [
+  { key: 'numline', title: '數線', terms: ['數線'], sem: '三上', game: 'port', hook: '碼頭的長線', when: ['port:place'],
+    ask: '碼頭要停 2 號、5 號、9 號船。怎麼擺，一眼就看出誰的號碼大？', tryIt: '拖小船，沿著長線開開看。', states: [2, 5, 9],
+    pic: (v, n) => c3s(c3line(v, 10, i => i, x => c3e(x, 74, '🚢', 34)), n ? [['數線', 270, 60, 'stick']] : []),
+    note: v => ({ 2: '2 號船離 0 最近', 5: '5 號船在 2 號的右邊', 9: '9 號船最右邊，號碼最大' }[v]),
+    found: '每格一樣長，從 0 開始，越往右數字越大。', name: `一條直線，畫上一樣長的刻度、寫上數字，就叫${cT('數線')}。`, loop: [0, 1, 2],
+    check: { q: '這條數線一格是 1000。箭頭指著幾？', pic: () => c3s(c3line(3, 5, i => i < 2 ? i * 1000 : '', x => c3e(x, 74, '⬇️', 30))), opts: ['300', '3000', '4000'], a: 1, why: '從 0 開始，一格一格數，每格是 1000。', ok: '對了！3 個 1000 是 3000。' } },
+  { key: 'kilo', title: '千位', terms: ['千位'], sem: '三上', game: 'port', hook: '寫不下的貨', when: ['port:word', 'port:cmp'],
+    ask: '倉庫有 12 盒貨，每盒 100 個。定位板的一格只能寫一個數字。怎麼辦？', tryIt: '拖一拖，把盒子綁起來。', states: [0, 1, 2],
+    pic: (v, n) => { const t = Math.min(v, 1); let o = ''; for (let i = 0; i < 12; i++) { const sx = 22 + (i % 6) * 48, sy = 8 + Math.floor(i / 6) * 40, ex = i < 10 ? 30 + (i % 5) * 26 : 196 + (i - 10) * 48, ey = i < 10 ? 8 + Math.floor(i / 5) * 32 : 26, x = sx + (ex - sx) * t, y = sy + (ey - sy) * t; if (i < 10 && v >= 1.5) continue; o += `<rect x="${x}" y="${y}" width="${i < 10 && t === 1 ? 24 : 38}" height="30" fill="#6ea8dc" stroke="#2f5f9e" stroke-width="2"/>`; } if (v >= 1 && v < 1.5) o += '<rect x="24" y="2" width="138" height="72" rx="8" fill="none" stroke="#d6476b" stroke-width="4"/>'; if (v >= 1.5) o += `<rect x="30" y="6" width="128" height="64" fill="#f0a03c" stroke="#a9702a" stroke-width="3"/>${c3t(94, 38, '1000', 26)}`; const cols = v >= 1.5 ? [['1'], ['2'], ['0'], ['0']] : [['12', '#f9c6c6'], ['0'], ['0']]; o += c3board(cols, v >= 1.5 ? 60 : 110, 118, 50); return c3s(o, v >= 1.5 ? [[n ? '千位' : '新的一格', 85, 100, n ? 'stick' : 'plain']] : [['百', 135, 100], ['十', 185, 100], ['一', 235, 100]]); },
+    note: v => ['12 盒，一格寫不下', '先把 10 盒綁在一起', '10 盒換 1 大箱，記到左邊新的一格'][v],
+    found: '滿 10 個一百，就換成 1 大箱，記在左邊新的一格。', name: `這一格記幾個一千，叫${cT('千位')}。1200 的 1 就在這裡。`, loop: [2],
+    check: { q: '4725 的千位是哪一個數字？', pic: () => c3s(c3board([['4'], ['7'], ['2'], ['5']], 60, 60, 50)), opts: ['4', '7', '5'], a: 0, why: '千位是記幾個一千的那一格，看最左邊。', ok: '對了！4 在千位，就是 4 個一千。' } },
+  { key: 'wan', title: '一萬', terms: ['一萬'], sem: '三上', game: 'port', hook: '滿滿的貨櫃', when: ['port:trade'],
+    ask: '每個貨櫃裝 1000 個貨。9 櫃之後再來 1 櫃，要怎麼寫？', tryIt: '拖一拖，再加一櫃。', states: [8, 9, 10],
+    pic: (v, n) => { let o = ''; const c = Math.floor(v + .01); for (let i = 0; i < c; i++) o += `<rect x="${14 + (i % 5) * 60}" y="${10 + Math.floor(i / 5) * 52}" width="52" height="44" fill="#f0a03c" stroke="#a9702a" stroke-width="2"/>${c3t(40 + (i % 5) * 60, 32 + Math.floor(i / 5) * 52, 1000, 15)}`; o += c3t(160, 142, String(c * 1000), 30, c === 10 ? '#d6476b' : '#33405a'); return c3s(o, n && c === 10 ? [['一萬', 260, 142, 'stick']] : []); },
+    note: v => v === 10 ? '10 櫃是 10000，又要往左多一格！' : `${v} 櫃是 ${v * 1000}`,
+    found: '10 個一千，比 9999 再多 1。', name: `10 個一千叫${cT('一萬')}，寫成 10000。`, loop: [2, 1],
+    check: { q: '已經有 6 個一千。再多幾個一千才到一萬？', pic: () => c3s(Array.from({ length: 6 }, (_, i) => `<rect x="${14 + (i % 5) * 60}" y="${20 + Math.floor(i / 5) * 56}" width="52" height="44" fill="#f0a03c" stroke="#a9702a" stroke-width="2"/>`).join('')), opts: ['4', '6', '10'], a: 0, why: '一萬是 10 個一千，還差幾個？', ok: '對了！6 個再 4 個，就是 10 個一千。' } },
+  { key: 'est', title: '估算', terms: ['估算'], sem: '三上', game: 'ship', hook: '錢夠不夠', when: ['ship:est', 'fact:est'],
+    ask: '帶 1000 元，買 398 元的鞋和 505 元的書包。夠不夠？要很快想出來。', tryIt: '拖一拖，把數字變成好算的整百。', states: [0, 1, 2],
+    pic: (v, n) => { const a = v >= .5 ? 400 : 398, b = v >= .5 ? 500 : 505; return c3s(c3e(70, 42, '👟', 44) + c3e(250, 42, '🎒', 44) + c3t(70, 92, a, 30, v >= .5 ? '#d6476b' : '#33405a') + c3t(250, 92, b, 30, v >= .5 ? '#d6476b' : '#33405a') + c3t(160, 92, '＋', 30) + (v >= 1.5 ? c3t(160, 140, '400＋500＝900', 26, '#2f9e6a') : ''), n ? [['估算', 160, 42, 'stick']] : []); },
+    note: v => ['398 和 505，算到個位好慢', '398 很接近 400，505 很接近 500', '900 比 1000 少，一定夠！'][v],
+    found: '不用算到個位，也知道夠了。', name: `先把數想成接近的整百再算，叫${cT('估算')}。`, loop: [0, 1, 2],
+    check: { q: '每盒 198 元，買 3 盒，帶 500 元。用估算，夠不夠？', pic: () => c3s(c3e(100, 80, '📦', 60) + c3t(200, 80, '198×3', 34)), opts: ['夠', '不夠'], a: 1, why: '198 接近 200，200×3 是多少？', ok: '對了！每盒大約 200 元，200×3＝600，不夠。' } },
+  { key: 'split', title: '拆開來乘', terms: ['拆開來乘'], sem: '三上', game: 'fact', hook: '買很多包貼紙', when: ['fact:split'],
+    ask: '每包 23 張貼紙，買 4 包，共幾張？一張一張數太慢了。', tryIt: '拖一拖，把一包切成好算的兩段。', states: [0, 1, 2],
+    pic: (v, n) => { const s = 12, x0 = 22, y0 = 12; let o = ''; const cut = v >= .5; for (let j = 0; j < 4; j++) for (let i = 0; i < 23; i++) o += `<rect x="${x0 + i * s + (cut && i >= 20 ? 8 : 0)}" y="${y0 + j * s * 1.5}" width="${s - 2}" height="${s * 1.5 - 2}" rx="2" fill="${cut && i >= 20 ? '#f0a03c' : '#6ea8dc'}"/>`; if (v >= 1.5) o += c3t(130, 106, '20×4＝80', 22, '#2f5f9e') + c3t(280, 106, '3×4＝12', 18, '#a9702a') + c3t(160, 142, '80＋12＝92', 26, '#2f9e6a'); return c3s(o, n ? [['拆開來乘', 262, 150, 'stick']] : []); },
+    note: v => ['每包 23 張，有 4 包：23×4', '切成 20 和 3', '分別乘，再加起來是 92 張'][v],
+    found: '切開分別乘，再加起來，就好算了。', name: `把 23 分成 20 和 3，分別乘再加起來，叫${cT('拆開來乘')}。`, loop: [1, 2],
+    check: { q: '每箱 31 瓶，有 5 箱。拆開來乘，哪一個對？', pic: () => c3s(c3e(160, 70, '📦', 70) + c3t(160, 140, '31×5', 28)), opts: ['30×5＋1×5', '30×5＋1', '30＋1×5'], a: 0, why: '30 和 1 都有 5 箱，兩段都要乘 5。', ok: '對了！30×5＋1×5＝155 瓶。' } },
+  { key: 'two', title: '兩步驟', terms: ['兩步驟'], sem: '三下', game: 'fact', hook: '一箱一箱的蛋', when: ['fact:two'],
+    ask: '每盒 6 顆，每箱 4 盒，3 箱有幾顆？一次算不出來，先算什麼？', tryIt: '拖一拖，把箱子打開。', states: [0, 1, 2],
+    pic: (v, n) => { let o = ''; for (let i = 0; i < 3; i++) { const x = 12 + i * 102, open = v >= .5 && (i === 0 || v >= 1.5); o += `<rect x="${x}" y="10" width="92" height="84" rx="6" fill="${open ? '#fff6e3' : '#c9a36a'}" stroke="#7a5b2e" stroke-width="3"/>`; if (open) { for (let b = 0; b < 4; b++) o += `<rect x="${x + 6 + (b % 2) * 42}" y="16 " width="38" height="32" fill="#a9d0f0" stroke="#2f5f9e" transform="translate(0 ${Math.floor(b / 2) * 36})"/>` + c3t(x + 25 + (b % 2) * 42, 32 + Math.floor(b / 2) * 36, 6, 16); } } o += v >= 1.5 ? c3t(160, 140, '24×3＝72', 30, '#2f9e6a') : v >= .5 ? c3t(160, 140, '6×4＝24', 30, '#2f5f9e') : ''; return c3s(o, n ? [['兩步驟', 275, 112, 'stick']] : []); },
+    note: v => ['先打開 1 箱看看', '1 箱：每盒 6 顆，有 4 盒，6×4＝24 顆', '3 箱：每箱 24 顆，有 3 箱，24×3＝72 顆'][v],
+    found: '先算 1 箱，再算 3 箱，算了兩次才有答案。', name: `要算兩次才得到答案的題目，叫${cT('兩步驟')}問題。`, loop: [1, 2],
+    check: { q: '每袋 5 顆，每盒 2 袋，買 4 盒。這個兩步驟問題，第一步先算哪一個？', pic: () => c3s(c3e(160, 80, '🍬', 70)), opts: ['5×2', '4×2', '5×4'], a: 0, why: '先算 1 盒有幾顆：每袋 5 顆，有 2 袋。', ok: '對了！1 盒 5×2＝10 顆，再算 4 盒。' } },
+  { key: 'angle', title: '角', terms: ['角', '頂點'], sem: '三上', game: 'angle', hook: '兩把剪刀', when: ['angle:cmp'],
+    ask: '桌上有一把長剪刀、一把短剪刀。哪一把張得比較開？', tryIt: '拖一拖，把剪刀變長，再張大。', states: [0, 1, 2],
+    pic: (v, n) => c3s(c3angle(c3L([35, 35, 80], v), c3L([80, 180, 80], v)), n ? [['頂點', 40, 158, 'stick'], ['角', 205, 110, 'stick']] : []),
+    note: v => ['張開這麼多', '變長了，可是張開的大小沒有變！', '這次才真的張得更開'][v],
+    found: '比張得開不開，看兩條直線中間，和線的長短沒有關係。', name: `一個點和兩條直線圍成的，叫${cT('角')}。那個點叫${cT('頂點')}。`, loop: [0, 1, 2],
+    check: { q: '藍色的邊很長、張得小；紅色的邊很短、張得大。哪個角比較大？', pic: () => c3s(c3angle(25, 120, 0, 0, 16, 140, '#a9d0f0') + c3angle(95, 60, 0, 0, 220, 140)), opts: ['藍色', '紅色'], a: 1, why: '角的大小看張開多少，不看邊多長。', ok: '對了！紅色的角比較大。' } },
+  { key: 'right', title: '直角、銳角、鈍角', terms: ['直角', '銳角', '鈍角'], sem: '三上', game: 'angle', hook: '書架和牆', when: ['angle:kind', 'angle:shape'],
+    ask: '書架要貼緊牆邊。拿摺兩次的紙去比，張多開才剛好？', tryIt: '拖一拖，把紅色的地方張開。', states: [45, 90, 135],
+    pic: (v, n) => c3s(c3angle(v, 110, 0, true, 120), n ? [[v < 80 ? '銳角' : v > 100 ? '鈍角' : '直角', 60, 60, 'stick']] : []),
+    note: v => ({ 45: '比摺紙小', 90: '和摺紙剛好一樣！', 135: '比摺紙大' }[v]),
+    found: '有的比摺紙小，有的剛好，有的比摺紙大。', name: `和摺紙一樣的叫${cT('直角')}，比它小的叫${cT('銳角')}，比它大的叫${cT('鈍角')}。`, loop: [0, 1, 2],
+    check: { q: '時鐘 2 點，長短針張開比直角小。這是什麼角？', pic: () => { let o = '<circle cx="160" cy="85" r="76" fill="#fff" stroke="#33405a" stroke-width="5"/><path d="M160 85V22" stroke="#33405a" stroke-width="5" stroke-linecap="round"/><path d="M160 85L200 62" stroke="#33405a" stroke-width="7" stroke-linecap="round"/>'; return c3s(o); }, opts: ['銳角', '直角', '鈍角'], a: 0, why: '比直角小的，叫什麼？', ok: '對了！比直角小，就是銳角。' } },
+  { key: 'perim', title: '周長', terms: ['周長'], sem: '三上', game: 'angle', hook: '菜園的籬笆', when: [],
+    ask: '菜園長 6 公尺、寬 4 公尺，要圍一圈籬笆。要買多長？', tryIt: '拖小羊，沿著邊走。', states: [6, 10, 20],
+    pic: (v, n) => { const W = 180, H = 120, x0 = 70, y0 = 25, u = 30, L = v * u; let d = `M${x0} ${y0}`, x = x0, y = y0, r = L; [[1, 0, W], [0, 1, H], [-1, 0, W], [0, -1, H]].forEach(([a, b, s]) => { const t = Math.min(r, s); x += a * t; y += b * t; if (t > 0) d += `L${x} ${y}`; r -= t; }); return c3s(`<rect x="${x0}" y="${y0}" width="${W}" height="${H}" fill="#cfe6c6" stroke="#7a9a62" stroke-width="3"/><path d="${d}" fill="none" stroke="#d6476b" stroke-width="6"/>${c3e(x, y, '🐑', 30)}${c3t(160, 12, 6, 16)}${c3t(50, 85, 4, 16)}`, n ? [['周長', 160, 85, 'stick']] : []); },
+    note: v => v === 20 ? '回到原點，6＋4＋6＋4＝20 公尺' : `走了 ${v} 公尺`,
+    found: '走完一圈，就是要買的長度：20 公尺。', name: `繞著圖形的邊走一圈的長度，叫${cT('周長')}。`, loop: [0, 1, 2],
+    check: { q: '正方形花圃每邊 5 公尺，周長是幾公尺？', pic: () => c3s('<rect x="100" y="25" width="120" height="120" fill="#cfe6c6" stroke="#7a9a62" stroke-width="3"/>' + c3t(160, 85, 5, 28)), opts: ['5', '10', '20'], a: 2, why: '正方形有幾條邊？每條都要走。', ok: '對了！每邊 5 公尺，有 4 邊，5×4＝20 公尺。' } },
+  { key: 'division', title: '除法', terms: ['除法'], sem: '三上', game: 'div', hook: '分貝殼', when: ['div:deal'],
+    ask: '9 顆貝殼給 3 個人，要一樣多。每人幾顆？', tryIt: '拖一拖，一輪一輪發貝殼。', states: [0, 1, 2, 3],
+    pic: (v, n) => c3s(c3deal(9, 3, Math.floor(v * 3 + .01)) + (n ? c3t(160, 20, '9÷3＝3', 26, '#d6476b') : ''), n ? [['除法', 270, 20, 'stick']] : []),
+    note: v => v ? `發了 ${v} 輪，每人 ${v} 顆，還有 ${9 - 3 * v} 顆` : '9 顆，3 個人',
+    found: '發完了，每人 3 顆，一樣多。', name: `把 9 顆平分給 3 個人，寫成 9÷3＝3，這種算法叫${cT('除法')}。`, loop: [3],
+    check: { q: '15 張卡片，每人 5 張，可以給幾個人？要用除法的算式是哪一個？', pic: () => c3s(c3e(160, 80, '🃏', 70)), opts: ['15÷5', '15－5', '5×15'], a: 0, why: '一直分，每次分 5 張，分完為止。', ok: '對了！15÷5＝3，可以給 3 個人。' } },
+  { key: 'rem', title: '餘數', terms: ['餘數'], sem: '三上', game: 'div', hook: '多出來的貝殼', when: ['div:deal'], need: q => q.r > 0,
+    ask: '10 顆貝殼給 3 個人，要一樣多。分得完嗎？', tryIt: '拖一拖，一輪一輪發貝殼。', states: [1, 2, 3],
+    pic: (v, n) => c3s(c3deal(10, 3, Math.floor(v * 3 + .01)), n ? [['餘數', 214, 20, 'stick']] : []),
+    note: v => v === 3 ? '還有 1 顆，不夠每人再發 1 顆了' : `發了 ${v} 輪，還有 ${10 - 3 * v} 顆`,
+    found: '分不完！留下的 1 顆比 3 個人少。', name: `10÷3＝3…1，不夠再分、留下的 1，叫${cT('餘數')}。`, loop: [2],
+    check: { q: '17 顆糖給 5 個人平分，餘數是多少？', pic: () => c3s(c3deal(17, 5, 15).replace(/🐚/g, '🍬')), opts: ['1', '2', '3'], a: 1, why: '每人發 3 顆用掉 15 顆，還有幾顆？', ok: '對了！17÷5＝3…2，餘數是 2。' } },
+  { key: 'parts', title: '驗算', terms: ['被除數', '除數', '商', '驗算'], sem: '三上', game: 'div', hook: '有沒有分錯', when: ['div:check', 'div:rule'],
+    ask: '14 顆貝殼給 4 個人，每人 3 顆，留下 2 顆。怎麼知道有沒有分錯？', tryIt: '拖一拖，把貝殼收回來。', states: [0, 1, 2],
+    pic: (v, n) => { const o = c3deal(14, 4, v < .5 ? 12 : 0).replace(/^/, '') ; if (v < .5) return c3s(o); return c3s((n ? c3t(160, 26, '14÷4＝3…2', 38, '#d6476b') : '') + c3t(n ? 90 : 160, n ? 130 : 50, '3×4＝12', n ? 24 : 34, '#2f5f9e') + (v >= 1.5 ? c3t(n ? 235 : 160, n ? 130 : 105, '12＋2＝14', n ? 24 : 34, '#2f9e6a') : ''), n ? [['被除數', 72, 68, 'stick'], ['除數', 148, 68, 'stick'], ['商', 200, 68, 'stick']] : []); },
+    note: v => ['每人 3 顆，留下 2 顆', '每人 3 顆，有 4 個人：3×4＝12 顆', '12 再加留下的 2，是 14 顆，沒分錯！'][v],
+    found: '收回來，剛好是原來的 14 顆。', name: `14÷4＝3…2：14 叫${cT('被除數')}，4 叫${cT('除數')}，3 叫${cT('商')}。收回來檢查，叫${cT('驗算')}。`, loop: [1, 2],
+    check: { q: '23÷5＝4…3，驗算要怎麼算？', pic: () => c3s(c3t(160, 80, '23÷5＝4…3', 38)), opts: ['4×5＋3', '4×3＋5', '23×5＋3'], a: 0, why: '每人 4 顆，有 5 個人，再加留下的。', ok: '對了！4×5＋3＝23。' } },
+  { key: 'odd', title: '奇數和偶數', terms: ['奇數', '偶數'], sem: '三上', game: 'div', hook: '兩人牽手', when: ['div:odd'],
+    ask: '校外教學要兩人一組牽手。幾個人才不會有人落單？', tryIt: '拖一拖，換人數試試看。', states: [6, 7, 8],
+    pic: (v, n) => { const c = Math.round(v); let o = ''; for (let i = 0; i < c; i++) { const alone = c % 2 && i === c - 1; o += c3e(30 + Math.floor(i / 2) * 60, 40 + (i % 2) * 60, alone ? '😢' : '🙂', 36); } return c3s(o, n ? [[c % 2 ? '奇數' : '偶數', 160, 150, 'stick']] : []); },
+    note: v => v % 2 ? `${v} 個人：多 1 個沒有伴` : `${v} 個人：每個人都有伴`,
+    found: '有的人數都有伴，有的人數一定多 1 個。', name: `兩人一組剛好分完的數叫${cT('偶數')}，多 1 個的叫${cT('奇數')}。`, loop: [0, 1, 2],
+    check: { q: '25 個人兩人一組。25 是什麼數？', pic: () => c3s(c3t(160, 80, 25, 70)), opts: ['偶數', '奇數'], a: 1, why: '兩人一組會不會多 1 個？看個位的 5。', ok: '對了！會多 1 個，25 是奇數。' } },
+  { key: 'bigfirst', title: '先分大的', terms: ['先分大的'], sem: '三下', game: 'div', hook: '一包一包分', when: ['div:split'],
+    ask: '64 顆貝殼，有 6 包（每包 10 顆）和 4 顆。2 個人平分，怎麼分最快？', tryIt: '拖一拖，分給兩個人。', states: [0, 1, 2],
+    pic: (v, n) => { let o = c3e(80, 60, '🙂', 34) + c3e(240, 60, '🙂', 34); const P = (x, y) => `<rect x="${x}" y="${y}" width="28" height="26" fill="#f0a03c" stroke="#a9702a" stroke-width="2"/>${c3t(x + 14, y + 13, 10, 14)}`; if (v < .5) { for (let i = 0; i < 6; i++) o += P(50 + i * 32, 6); for (let i = 0; i < 4; i++) o += c3e(120 + i * 26, 110, '🐚', 20); } else { [50, 210].forEach(x => { for (let i = 0; i < 3; i++) o += P(x + i * 30 - 10, 90); if (v >= 1.5) { o += c3e(x + 10, 140, '🐚', 20) + c3e(x + 40, 140, '🐚', 20); } }); if (v < 1.5) for (let i = 0; i < 4; i++) o += c3e(120 + i * 26, 22, '🐚', 20); } return c3s(o, n ? [['先分大的', 160, 155, 'stick']] : []); },
+    note: v => ['6 包和 4 顆', '每人先拿 3 包', '每人再拿 2 顆，每人 32 顆'][v],
+    found: '先分一包一包的，再分一顆一顆的，很快就分完。', name: `先把幾十分好，再分幾個，這樣叫${cT('先分大的')}，再分小的。`, loop: [0, 1, 2],
+    check: { q: '96 顆，有 9 包和 6 顆，3 個人平分。先分大的，要先分哪一個？', pic: () => c3s(c3t(160, 80, '96÷3', 50)), opts: ['9 包', '6 顆'], a: 0, why: '一包有 10 顆，比一顆大。', ok: '對了！先分 9 包，再分 6 顆。' } },
+  { key: 'inverse', title: '乘除互逆', terms: ['乘除互逆'], sem: '三下', game: 'div', hook: '要裝幾袋', when: ['div:missing'],
+    ask: '每袋 6 顆，想裝滿 24 顆，要幾袋？', tryIt: '拖一拖，一袋一袋加。', states: [2, 3, 4],
+    pic: (v, n) => { const c = Math.floor(v + .01); let o = ''; for (let i = 0; i < c; i++) { o += `<rect x="${14 + i * 74}" y="10" width="66" height="72" rx="10" fill="#fde8c8" stroke="#a9702a" stroke-width="2"/>`; for (let k = 0; k < 6; k++) o += `<circle cx="${30 + i * 74 + (k % 3) * 17}" cy="${30 + Math.floor(k / 3) * 28}" r="7" fill="#d6476b"/>`; } o += c3t(160, 124, `6×${n ? '□' : c}＝${n ? 24 : 6 * c}`, 32, c === 4 ? '#2f9e6a' : '#33405a') + (n ? c3t(90, 156, '24÷6＝4', 24, '#d6476b') : ''); return c3s(o, n ? [['乘除互逆', 262, 156, 'stick']] : []); },
+    note: v => v === 4 ? '6×4＝24，剛好！' : `6×${v}＝${6 * v}，還不夠`,
+    found: '用乘的試到 4 袋。其實 24÷6 也能算出 4。', name: `6×□＝24，可以用 24÷6 找 □。乘和除可以互相還原，叫${cT('乘除互逆')}。`, loop: [2],
+    check: { q: '□×5＝35，用乘除互逆，□ 怎麼算？', pic: () => c3s(c3t(160, 80, '□×5＝35', 44)), opts: ['35÷5', '35×5', '35－5'], a: 0, why: '反過來用除的：35 裡有幾個 5？', ok: '對了！35÷5＝7。' } },
+  { key: 'pattern', title: '規律', terms: ['規律'], sem: '三上', game: 'rule', hook: '花盆的號碼', when: ['rule:seq', 'rule:grow'],
+    ask: '花盆號碼是 3、6、9，接下來該寫幾號？', tryIt: '拖一拖，再多放幾盆。', states: [4, 5, 6],
+    pic: (v, n) => { const c = Math.floor(v + .01); let o = ''; for (let i = 0; i < c; i++) { o += c3e(30 + i * 52, 60, '🌷', 34) + c3t(30 + i * 52, 106, 3 * (i + 1), 22, i >= 3 ? '#d6476b' : '#33405a'); if (i) o += c3t(4 + i * 52, 84, '+3', 13, '#2f9e6a'); } return c3s(o, n ? [['規律', 160, 145, 'stick']] : []); },
+    note: v => `第 ${v} 盆是 ${3 * v} 號，比前一盆多 3`,
+    found: '每一次都多 3，一直照這樣走下去。', name: `照同樣的方法一直變下去，叫${cT('規律')}。`, loop: [0, 1, 2],
+    check: { q: '20、18、16、14，這串數的規律是什麼？', pic: () => c3s(c3t(160, 80, '20  18  16  14', 36)), opts: ['每次多 2', '每次少 2', '每次少 4'], a: 1, why: '20 到 18，變多還是變少？差多少？', ok: '對了！每次少 2，下一個是 12。' } },
+  { key: 'frac', title: '分數', terms: ['分數'], sem: '三上', game: 'frac', hook: '三個人一個蛋糕', when: ['frac:unit'],
+    ask: '1 個蛋糕，3 個人平分。每人吃到多少？1 個太多，0 個也不對。', tryIt: '拖一拖，移動刀子，切到一樣大。', states: [0, 1, 2],
+    pic: (v, n) => { const a = [0, 1, 2].map(i => c3L(C3_CUT.map(r => r[i]), v)); return c3s(c3sec(160, 85, 78, 0, a[0], n ? '#f08a8a' : '#fff0cf') + c3sec(160, 85, 78, a[0], a[0] + a[1], '#fde8c8') + c3sec(160, 85, 78, a[0] + a[1], 360, '#ffe9b0') + (n ? c3frac(290, 85, 1, 3, 26) : ''), n ? [['分數', 290, 28, 'stick']] : []); },
+    note: v => ['一塊大、一塊小，不公平！', '還是不一樣大', '三塊一樣大，這才是平分！'][v],
+    found: '每人拿 1 塊，比 1 個少。要用新的數來說。', name: `平分成 3 塊，1 塊是三分之一個，寫成 ${fracHtml(1, 3)}。這樣的數叫${cT('分數')}。`, loop: [2],
+    check: { q: '1 條魚乾，4 個人平分。每人是幾條？用分數答。', pic: () => c3s(c3fish(40, 70, 240, 4, 1)), opts: [fracHtml(1, 4), fracHtml(1, 3), fracHtml(4, 1)], a: 0, why: '平分成幾段，拿其中 1 段？', ok: '對了！平分成 4 段，1 段是四分之一條。' } },
+  { key: 'numer', title: '分子和分母', terms: ['分子', '分母'], sem: '三上', game: 'frac', hook: '我吃了 3 塊', when: ['frac:name', 'frac:make', 'frac:accum'],
+    ask: '只說「我吃了 3 塊派」，別人知道你吃多少嗎？', tryIt: '拖一拖，換不同切法看看。', states: [0, 1, 2],
+    pic: (v, n) => { const i = Math.round(v), m = [4, 8, 5][i]; return c3s(c3pie(n ? 110 : 160, 85, 76, m, 3) + (n ? c3frac(240, 85, 3, m, 30) : ''), n ? [['分子', 295, 58, 'stick'], ['分母', 295, 112, 'stick']] : []); },
+    note: v => ['切 4 塊，吃 3 塊', '切 8 塊，也吃 3 塊，可是吃得比較少', '切 5 塊，吃 3 塊'][v],
+    found: '光說 3 塊不夠，還要說切成幾塊。', name: `下面的數是平分成幾塊，叫${cT('分母')}；上面的數是拿了幾塊，叫${cT('分子')}。`, loop: [0, 1, 2],
+    check: { q: '吐司平分成 7 片，吃了 3 片。這個分數的分母是多少？', pic: () => c3s(c3pie(160, 85, 76, 7, 3)), opts: ['3', '7', '10'], a: 1, why: '分母是平分成幾塊。', ok: '對了！分母是 7，分子是 3。' } },
+  { key: 'same', title: '同分母', terms: ['同分母'], sem: '三下', game: 'frac', hook: '一塊一塊放', when: ['frac:cmp', 'frac:add', 'frac:sub'],
+    ask: '派切成 6 塊一樣大。有 2 塊，再放 3 塊，一共幾塊？', tryIt: '拖一拖，一塊一塊放。', states: [2, 3, 5],
+    pic: (v, n) => c3s(c3pie(120, 85, 76, 6, Math.floor(v + .01)) + (n ? c3frac(255, 85, Math.floor(v + .01), 6, 30) : ''), n ? [['同分母', 255, 20, 'stick']] : []),
+    note: v => v === 2 ? '2 塊' : v === 3 ? '再放 1 塊，3 塊' : '再放 2 塊，5 塊',
+    found: '每塊一樣大，直接數塊數；切成幾塊沒有變。', name: `分母一樣的分數，叫${cT('同分母')}分數。加減時，分母不變，只算分子。`, loop: [0, 1, 2],
+    check: { q: `同分母相加：${fracHtml(2, 7)}＋${fracHtml(3, 7)} 是多少？`, pic: () => c3s(c3pie(160, 85, 76, 7, 5)), opts: [fracHtml(5, 7), fracHtml(5, 14), fracHtml(6, 7)], a: 0, why: '分母不變，只算分子。', ok: '對了！2 塊和 3 塊，是 5 塊。' } },
+  { key: 'center', title: '圓心', terms: ['圓心'], sem: '三上', game: 'circle', hook: '小羊和繩子', when: ['circle:center'],
+    ask: '小羊用繩子綁在木樁上，把繩子拉直走一圈。走過的路是什麼形狀？', tryIt: '拖一拖，帶小羊走。', states: [100, 220, 360],
+    pic: (v, n) => { const a = v * Math.PI / 180, x = 160 + 70 * Math.sin(a), y = 85 - 70 * Math.cos(a), big = v > 180 ? 1 : 0; return c3s(`${v >= 359 ? '<circle cx="160" cy="85" r="70" fill="#dfeafa" stroke="#d6476b" stroke-width="4"/>' : `<path d="M160 15A70 70 0 ${big} 1 ${x} ${y}" fill="none" stroke="#d6476b" stroke-width="4"/>`}<path d="M160 85L${x} ${y}" stroke="#a9702a" stroke-width="3"/><circle cx="160" cy="85" r="7" fill="#33405a"/>${c3e(x, y, '🐑', 28)}`, n ? [['圓心', 210, 90, 'stick']] : []); },
+    note: v => v === 360 ? '走回原點了！' : v === 100 ? '走了一小段，繩子拉得直直的' : '走了大半圈，繩子還是一樣長',
+    found: '繩子一樣長，走出來的是一個圓。木樁就在正中間。', name: `圓正中間的這個點，叫${cT('圓心')}。`, loop: [0, 1, 2],
+    check: { q: '用圓規畫圓，尖尖的腳踩著的那一點是什麼？', pic: () => c3s('<circle cx="160" cy="85" r="70" fill="#dfeafa" stroke="#3b82c4" stroke-width="3"/><circle cx="160" cy="85" r="6" fill="#d6476b"/>'), opts: ['圓心', '圓的邊'], a: 0, why: '筆繞著轉，轉的中間是哪裡？', ok: '對了！那一點就是圓心。' } },
+  { key: 'radius', title: '半徑和直徑', terms: ['半徑', '直徑'], sem: '三上', game: 'circle', hook: '水池上的橋', when: ['circle:name', 'circle:size', 'circle:long'],
+    ask: '圓形水池要架一座最長的橋，從池邊到池邊。要架在哪裡？', tryIt: '拖橋，上下移動看看。', states: [55, 30, 0],
+    pic: (v, n) => { const R0 = 75, w = Math.sqrt(R0 * R0 - v * v), y = 85 - v; return c3s(`<circle cx="160" cy="85" r="${R0}" fill="#cfe4f7" stroke="#3b82c4" stroke-width="3"/><circle cx="160" cy="85" r="5" fill="#33405a"/><path d="M${160 - w} ${y}H${160 + w}" stroke="#d6476b" stroke-width="7" stroke-linecap="round"/>${n ? '<path d="M160 85L213 32" stroke="#2f9e6a" stroke-width="6" stroke-linecap="round"/>' : ''}`, n ? [['直徑', 62, 85, 'stick'], ['半徑', 260, 40, 'stick']] : []); },
+    note: v => v === 0 ? '穿過正中間，最長！' : v === 55 ? '這座橋太短了' : '長一點了，還不是最長',
+    found: '穿過正中間最長，剛好是兩段從中間到池邊的長度。', name: `圓心到圓的邊的線叫${cT('半徑')}。穿過圓心、兩頭碰到圓的邊的線叫${cT('直徑')}。直徑是半徑的 2 倍。`, loop: [2],
+    check: { q: '圓桌的半徑是 4 公分，直徑是幾公分？', pic: () => c3s('<circle cx="160" cy="85" r="75" fill="#fde8c8" stroke="#a9702a" stroke-width="3"/><path d="M160 85H235" stroke="#2f9e6a" stroke-width="6"/>' + c3t(198, 68, 4, 24)), opts: ['2', '4', '8'], a: 2, why: '直徑是半徑的 2 倍。', ok: '對了！4×2＝8 公分。' } },
+  { key: 'mm', title: '毫米', terms: ['毫米'], sem: '三上', game: 'mm', hook: '量緞帶', when: ['mm:read', 'mm:cut', 'mm:to', 'mm:from', 'mm:guess'],
+    ask: '緞帶比 4 公分長一點，比 5 公分短。要怎麼說才準？', tryIt: '拖一拖，把尺放大看。', states: [0, 1, 2],
+    pic: (v, n) => c3s(c3ruler(v), n ? [['毫米', 95, 25, 'stick']] : []),
+    note: v => ['比 4 公分長，比 5 公分短', '1 公分裡面還有 10 小格', '多了 3 小格！'][v],
+    found: '尺上 1 公分裡有 10 小格，用小格量才準。', name: `1 小格叫 1 ${cT('毫米')}，10 毫米是 1 公分。緞帶是 4 公分 3 毫米。`, loop: [1, 2],
+    check: { q: '橡皮擦長 5 公分 2 毫米，是幾毫米？', pic: () => c3s(c3e(160, 80, '🧽', 70)), opts: ['7', '52', '502'], a: 1, why: '每公分 10 毫米，有 5 公分，再加 2 毫米。', ok: '對了！10×5＋2＝52 毫米。' } },
+  { key: 'ml', title: '公升和毫升', terms: ['公升', '毫升'], sem: '三下', game: 'meas', hook: '兩桶水', when: ['meas:to', 'meas:from', 'meas:pick'], need: q => /公升|毫升/.test(JSON.stringify(q)),
+    ask: '哥哥和妹妹都說：「我的桶裝了 5 杯水。」兩桶水一樣多嗎？', tryIt: '拖一拖，倒水看看。', states: [1, 3, 5],
+    pic: (v, n) => c3s(c3bucket(40, v * .18) + c3bucket(190, v * .05) + '<rect x="66" y="8" width="38" height="44" rx="4" fill="#dfeafa" stroke="#33405a" stroke-width="3"/>' + c3e(235, 34, '🥛', 22), n ? [['公升', 85, 110, 'stick'], ['毫升', 235, 110, 'stick']] : []),
+    note: v => v === 5 ? '都是 5 杯，水卻差很多！' : `兩人都倒了 ${v} 杯`,
+    found: '杯子大小不一樣，說幾杯講不清楚，大家要用一樣的量杯。', name: `大家約好的量杯：大的裝 1 ${cT('公升')}，小小一格是 1 ${cT('毫升')}。1 公升是 1000 毫升。`, loop: [1, 2],
+    check: { q: '鮮奶倒滿 2 個 1 公升量杯，共有多少？', pic: () => c3s(c3e(120, 80, '🥛', 66) + c3e(200, 80, '🥛', 66)), opts: ['2 公升', '2 毫升', '20 公升'], a: 0, why: '1 個量杯是 1 公升，有 2 個。', ok: '對了！1×2＝2 公升。' } },
+  { key: 'sec', title: '秒', terms: ['秒'], sem: '三下', game: 'meas', hook: '賽跑誰快', when: ['meas:to', 'meas:from', 'meas:pick'], need: q => /小時|秒|分鐘/.test(JSON.stringify(q)) || q.per === 60,
+    ask: '賽跑，兩個人都不到 1 分鐘就到終點。長針幾乎沒動，誰比較快？', tryIt: '拖紅色細針，看它跑。', states: [5, 10, 15],
+    pic: (v, n) => c3clock(v, n ? [['秒針', 270, 40, 'stick']] : []),
+    note: v => `細針走了 ${v} 小格，長針還在原地`,
+    found: '細針走得快，一小格一小格，才比得出來。', name: `紅色細針走 1 小格是 1 ${cT('秒')}，走一圈是 60 秒，也就是 1 分鐘。`, loop: [0, 1, 2],
+    check: { q: '小安 12 秒跑到，小明 15 秒跑到。誰比較快？', pic: () => c3clock(12), opts: ['小安', '小明'], a: 0, why: '用的秒數比較少，才是快。', ok: '對了！12 秒比 15 秒少，小安比較快。' } },
+  { key: 'kg', title: '公斤和公克', terms: ['公斤', '公克'], sem: '三下', game: 'meas', hook: '書包有多重', when: ['meas:to', 'meas:from', 'meas:pick', 'meas:dial'], need: q => q.mode === 'dial' || /公斤|公克/.test(JSON.stringify(q)),
+    ask: '書包有多重？用手拿拿看說不準，要怎麼比？', tryIt: '拖一拖，放鐵塊上去。', states: [1, 2, 3],
+    pic: (v, n) => { const tilt = (3 - v) * 7; let o = `<path d="M160 160V70" stroke="#33405a" stroke-width="6"/><path d="M130 160H190" stroke="#33405a" stroke-width="6"/><g transform="rotate(${-tilt} 160 70)"><path d="M50 70H270" stroke="#33405a" stroke-width="6"/>${c3e(60, 44, '🎒', 44)}`; const c = Math.floor(v + .01); for (let i = 0; i < c; i++) o += `<rect x="${222 + i * 22 - 22}" y="50" width="20" height="20" fill="#77809a" stroke="#33405a"/>`; return c3s(o + '</g>', n ? [['公斤', 260, 110, 'stick'], ['公克', 60, 120, 'stick']] : []); },
+    note: v => v === 3 ? '3 個鐵塊，兩邊一樣平！' : `${v} 個鐵塊，書包還比較重`,
+    found: '書包和 3 個鐵塊一樣重。鐵塊要大家都一樣，才說得清楚。', name: `大家約好的這種鐵塊重 1 ${cT('公斤')}，很輕的東西用${cT('公克')}說。1 公斤是 1000 公克。`, loop: [2],
+    check: { q: '西瓜放上去，和 5 個 1 公斤鐵塊一樣平。西瓜多重？', pic: () => c3s(c3e(160, 80, '🍉', 80)), opts: ['5 公斤', '5 公克', '1 公斤'], a: 0, why: '每塊 1 公斤，有 5 塊。', ok: '對了！1×5＝5 公斤。' } },
+  { key: 'area', title: '面積', terms: ['面積'], sem: '三下', game: 'area', hook: '兩塊草地', when: ['area:pick', 'area:count', 'area:same', 'area:cut', 'area:half'],
+    ask: '甲、乙兩塊草地形狀不一樣，疊不起來。哪一塊草比較多？', tryIt: '拖一拖，用一樣大的方格鋪滿。', states: [0, 1, 2],
+    pic: (v, n) => { const f = v / 2; return c3s(c3cells(26, 30, 4, 3, 30, Math.round(12 * f), '#8fce7a') + c3cells(176, 45, 5, 2, 26, Math.round(10 * f), '#8fce7a'), [['甲', 86, 14], ['乙', 240, 26]].concat(n ? [['面積', 160, 150, 'stick']] : [])); },
+    note: v => ['形狀不一樣，看不出來', '鋪一鋪，數一數', '甲有 12 格，乙有 10 格'][v],
+    found: '都用一樣大的方格鋪，數格子就能比。', name: `一塊地方有多大，叫${cT('面積')}。甲的面積比乙大。`, loop: [1, 2],
+    check: { q: '藍色貼紙鋪 9 格，黃色貼紙鋪 8 格。誰的面積比較大？', pic: () => c3s(c3cells(30, 30, 3, 3, 30, 9, '#6ea8dc') + c3cells(180, 45, 4, 2, 30, 8, '#f7dc8c')), opts: ['藍色', '黃色'], a: 0, why: '方格一樣大，數一數誰多。', ok: '對了！9 格比 8 格多。' } },
+  { key: 'deci', title: '小數', terms: ['小數', '小數點'], sem: '三下', game: 'deci', hook: '多出來的魚乾', when: ['deci:color', 'deci:count'],
+    ask: '大嘴的魚乾比 1 條多，比 2 條少。要怎麼說才準？', tryIt: '拖一拖，把第二條切開來數。', states: [0, 1, 2],
+    pic: (v, n) => { const cut = v >= .5; return c3s(c3fish(30, 30, 260, 1, 1, true) + (cut ? c3fish(30, 82, 260, 10, v >= 1.5 ? 3 : 0) : `<rect x="30" y="82" width="78" height="30" fill="#e8a35c" stroke="#a9702a" stroke-width="2.5"/><rect x="30" y="82" width="260" height="30" fill="none" stroke="#a9702a" stroke-dasharray="5 4"/>`) + (n ? c3t(110, 145, '1.3', 34, '#d6476b') : ''), n ? [['小數', 190, 145, 'stick']] : []); },
+    note: v => ['多出來的不到 1 條', '把 1 條平分成 10 段', '多了 3 段'][v],
+    found: '1 條平分成 10 段，1 段比 1 條小，要用新的寫法。', name: `1 段寫成 0.1 條，1 條又 3 段寫成 1.3 條。這樣的數叫${cT('小數')}，中間的點叫${cT('小數點')}。`, loop: [1, 2],
+    check: { q: '緞帶平分成 10 段，拿 7 段。用小數說，是幾條？', pic: () => c3s(c3fish(30, 70, 260, 10, 7)), opts: ['0.7', '7', '0.1'], a: 0, why: '1 段是 0.1，有 7 段。', ok: '對了！7 個 0.1 是 0.7。' } },
+  { key: 'tenths', title: '十分位', terms: ['十分位'], sem: '三下', game: 'deci', hook: '誰的魚乾多', when: ['deci:cmp', 'deci:calc'],
+    ask: '1.3 條和 1.7 條魚乾，哪一個比較多？', tryIt: '拖一拖，先比整條，再比段數。', states: [0, 1, 2],
+    pic: (v, n) => { const a = v >= .5 ? 3 : 0, b = v >= .5 ? 7 : 0; return c3s(c3fish(20, 14, 100, 1, 1, true) + c3fish(130, 14, 170, 10, a) + c3fish(20, 62, 100, 1, 1, true) + c3fish(130, 62, 170, 10, b) + c3board([['1'], [a || '']], 60, 112, 44) + c3t(150, 131, '.', 30) + c3board([['1'], [b || '']], 190, 112, 44) + (n ? '' : ''), n ? [['十分位', 130, 100, 'stick'], ['十分位', 260, 100, 'stick']] : []); },
+    note: v => ['整條都是 1，一樣多', '多出來的：3 段和 7 段', '7 段比 3 段多，1.7 比較多'][v],
+    found: '小數點右邊那一格，記的是有幾段。', name: `小數點右邊這一格，記幾個 0.1，叫${cT('十分位')}。`, loop: [1, 2],
+    check: { q: '2.6 的十分位是哪一個數字？', pic: () => c3s(c3t(160, 80, '2.6', 70)), opts: ['2', '6', '0'], a: 1, why: '看小數點的右邊。', ok: '對了！6 在十分位，就是 6 個 0.1。' } },
+  { key: 'table', title: '表格', terms: ['表格'], sem: '三下', game: 'meas', hook: '找一個數字', when: ['meas:table'],
+    ask: '一班晴天 5 人、雨天 3 人；二班晴天 7 人、雨天 4 人……一長串好難找！怎麼擺？', tryIt: '拖一拖，把數字放進格子。', states: [0, 1, 2],
+    pic: (v, n) => { const h = c3table(v, v >= 1.9); return n ? h.replace('</div>', `<span class="c3l stick" style="left:14%;top:13%">表格</span></div>`) : h; },
+    note: v => ['數字亂亂的', '橫的看班級，直的看天氣', '二班和雨天碰到的地方，就是 4！'][v],
+    found: '橫的、直的對起來，馬上就找到。', name: `把資料排進橫的、直的格子裡，就叫${cT('表格')}。`, loop: [1, 2],
+    check: { q: '看這個表格：一班雨天有幾人？', pic: () => c3table(2), opts: ['3', '5', '7'], a: 0, why: '先找一班那一橫，再找雨天那一直。', ok: '對了！一班雨天是 3 人。' } },
+];
+const conceptsOf = g => CONCEPTS.filter(c => c.game === g || c.when.some(w => w.startsWith(g + ':')));
+const seenCpt = () => S.seenCpt || (S.seenCpt = {});
+let cptTimer = null, cptAnim = null, cptVal = 0;
+const cptStop = () => { if (cptTimer) { clearInterval(cptTimer); cptTimer = null; } if (cptAnim) { clearInterval(cptAnim); cptAnim = null; } };
+function cptTween(to, paint) { // 圖從現在的樣子慢慢變過去
+  if (cptAnim) { clearInterval(cptAnim); cptAnim = null; }
+  const from = cptVal, n = 10; let i = 0;
+  const still = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (still || from === to) { cptVal = to; paint(to); return; }
+  cptAnim = setInterval(() => {
+    i++; cptVal = i >= n ? to : from + (to - from) * i / n;
+    if (i >= n) { clearInterval(cptAnim); cptAnim = null; }
+    if (document.getElementById('cp')) paint(cptVal); else cptStop();
+  }, 30);
+}
+function runConcept(key, then, opt) {
+  const C = CONCEPTS.find(c => c.key === key), o = opt || {};
+  document.body.classList.remove('in-cine');
+  const who = STORY[C.game].who, LOp = { title: '小故事', sem: C.sem, who }, LN = { title: C.title, sem: C.sem, who };
+  const leave = () => { cptStop(); if (o.leave) return o.leave(); R = null; go(''); };
+  const done = () => { cptStop(); seenCpt()[key] = 1; save(); then(); };
+  const skipBtn = '<button class="skip5" id="skipc">跳過</button>';
+  const wire = () => { document.getElementById('out').onclick = leave; document.getElementById('skipc').onclick = done; };
+  function op() { // 第二步：動手試，全程不出現新詞
+    cptStop();
+    lessonFrame(LOp, `${nums(C.ask)}<br><small>${nums(C.tryIt)}</small>`, `<div class="cp" id="cp"></div><div class="trail" id="ct"></div>${skipBtn}`); wire();
+    const seen = new Set([0]), paint = v => setEl('cp', C.pic(v)); let i = 0, over = false;
+    const btn = () => { if (over) actionBtn('nm', '這叫什麼？').onclick = named; else actionBtn('tn', '試下一個').onclick = () => { let k = (i + 1) % C.states.length; while (seen.has(k)) k = (k + 1) % C.states.length; show(k); }; };
+    const show = k => { i = k; setEl('ct', nums(C.note(C.states[k]))); sfx.hop(); seen.add(k); cptTween(C.states[k], paint); if (seen.size === C.states.length && !over) { over = true; setMsg(nums(C.found), 'good'); sfx.ok(); btn(); reveal('#actions'); } };
+    cptVal = C.states[0]; paint(cptVal); setEl('ct', nums(C.note(C.states[0]))); btn();
+    dragOn(document.getElementById('cp'), x => { const k = Math.max(0, Math.min(C.states.length - 1, Math.floor(x * C.states.length))); if (k !== i) show(k); }, '.c3p');
+  }
+  function named() { // 第三步：命名，新詞貼回剛才的圖，圖繼續動
+    cptStop();
+    lessonFrame(LN, nums(C.name), `<div class="cp" id="cp"></div>${skipBtn}`); wire();
+    let k = 0; const paint = v => setEl('cp', C.pic(v, true));
+    cptVal = C.states[C.loop[0]]; paint(cptVal);
+    if (C.loop.length > 1) cptTimer = setInterval(() => { k++; if (document.getElementById('cp')) cptTween(C.states[C.loop[k % C.loop.length]], paint); else cptStop(); }, 1500);
+    actionBtn('ck', '換一題試試').onclick = check; reveal('#actions');
+  }
+  function check() { // 第四步：換情境用新詞答；答錯回到操作
+    cptStop(); const K = C.check;
+    lessonFrame(LN, nums(K.q), `<div class="cp2">${K.pic()}</div>${skipBtn}`); wire();
+    document.getElementById('actions').innerHTML = `<div class="choices">${K.opts.map((t, i) => `<button class="choice" data-c5="${i}">${nums(t)}</button>`).join('')}</div>`;
+    document.querySelectorAll('[data-c5]').forEach(b => b.onclick = () => {
+      document.querySelectorAll('[data-c5]').forEach(x => { x.disabled = true; });
+      if (+b.dataset.c5 === K.a) { sfx.good(); setMsg(nums(K.ok), 'good'); seenCpt()[key] = 1; save(); document.getElementById('skipc').hidden = true; actionBtn('fin', o.doneText || '開始玩').onclick = done; reveal('#actions'); return; }
+      sfx.retry(); b.classList.add('no'); setMsg(nums(K.why), 'hint'); actionBtn('bk', '回去再動手看看').onclick = op; reveal('#actions');
+    });
+  }
+  op();
+}
+function conceptThen(q, then) { // 第一次碰到這個題型，自動播；已看過就不再播
+  const key = q.kind + ':' + q.mode, C = CONCEPTS.find(c => c.when.includes(key) && !seenCpt()[c.key] && (!c.need || c.need(q)));
+  if (!C) return then();
+  runConcept(C.key, () => conceptThen(q, then));
+}
+function viewConcepts(g, back) { // 重看：沒看過的先不露新詞
+  const list = g ? conceptsOf(g) : CONCEPTS;
+  window.scrollTo(0, 0);
+  $app.innerHTML = `<div class="top"><button class="icon-btn" id="bkc" aria-label="回去">⌂</button><h2 class="page-h">新概念小故事</h2></div><p class="tag">想再看一次哪一個？</p><div class="lessons">${list.map(c => { const s = seenCpt()[c.key]; return `<button class="lesson" data-rc="${c.key}"><span class="l-t"><b>${nums(c.hook)}</b><small>${s ? c.terms.join('、') : '還沒看過'}</small></span><em class="sem">${c.sem}</em>${s ? '<span class="badge in">✓</span>' : ''}</button>`; }).join('')}</div>`;
+  document.getElementById('bkc').onclick = back;
+  const again = () => viewConcepts(g, back);
+  document.querySelectorAll('[data-rc]').forEach(b => b.onclick = () => runConcept(b.dataset.rc, again, { leave: again, doneText: '看完了' }));
+}
+// 單位教室的銜接：先用小故事知道為什麼要這個單位，教室再感覺它多大、怎麼換算
+const LESSON_STORY = { len: 'mm', vol: 'ml', weight: 'kg', time: 'sec', area: 'area' };
+function storyFirst(key, then, leave) {
+  const c = LESSON_STORY[key];
+  if (c && !seenCpt()[c]) return runConcept(c, then, { leave, doneText: '去單位教室' });
+  then();
+}
 const QUIZ_STAR = 25;
 /* ---------- 單元數感測驗（共用，來源 D:/數感測驗題庫/quiz_ui.js） ---------- */
 const QUIZ_LV = { basic: ['基礎題', 25], adv: ['進階題', 25], fun: ['益智題', 10] };
@@ -1525,7 +1823,7 @@ function viewParent() {
   </div>`;
   document.getElementById('snd').onchange = e => { S.sound = e.target.checked; save(); };
   document.getElementById('reset').onclick = () => {
-    if (confirm('確定清除所有星星和紀錄？')) { S.stars = 0; S.rec = {}; S.log = []; S.prog = {}; S.opened = false; S.bossDone = false; S.bossSeen = false; S.s2Seen = false; S.stamps = {}; S.fast = {}; S.quiz = {}; S.learned = {}; save(); viewParent(); }
+    if (confirm('確定清除所有星星和紀錄？')) { S.stars = 0; S.rec = {}; S.log = []; S.prog = {}; S.opened = false; S.bossDone = false; S.bossSeen = false; S.s2Seen = false; S.stamps = {}; S.fast = {}; S.seenCpt = {}; S.quiz = {}; S.learned = {}; save(); viewParent(); }
   };
   document.getElementById('out').onclick = () => go('');
 }
