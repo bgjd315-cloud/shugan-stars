@@ -330,7 +330,7 @@ function bindKeypad(onOk) {
       const k = b.dataset.k;
       if (k === 'del') val = val.slice(0, -1);
       else if (k === 'ok') { if (val) onOk(+val, () => { val = ''; show(); }); else { setMsg('先按數字，再按打勾。', 'hint'); sfx.retry(); } return; }
-      else if (val.length < 5) val = (val + k).replace(/^0+(?=\d)/, '');
+      else if (val.length < 6) val = (val + k).replace(/^0+(?=\d)/, '');
       show();
     };
   });
@@ -1349,6 +1349,70 @@ function lessonsThen(ch, then) {
   document.getElementById('no').onclick = then;
 }
 
+const QUIZ_STAR = 25;
+/* ---------- 單元數感測驗（共用，來源 D:/數感測驗題庫/quiz_ui.js） ---------- */
+const QUIZ_LV = { basic: ['基礎題', 25], adv: ['進階題', 25], fun: ['益智題', 10] };
+const quizBest = key => (S.quiz || {})[key];
+const quizShell = (title, back, body) => {
+  window.scrollTo(0, 0);
+  $app.innerHTML = `<div class="top"><button class="icon-btn" id="qback" aria-label="回上一頁">⌂</button><h2 class="page-h">${title}</h2></div>${body}`;
+  document.getElementById('qback').onclick = back;
+};
+function viewQuizBooks() {
+  const books = (window.QUIZ && QUIZ.books) || [];
+  quizShell('單元測驗', () => go(''), `<p class="tag">每個單元都有基礎、進階和益智題。</p><div class="lessons">${books.map((b, i) => {
+    const total = b.units.length * 3, done = b.units.reduce((n, U) => n + Object.keys(QUIZ_LV).filter(l => quizBest(`${b.id}-${U.u}-${l}`) !== undefined).length, 0);
+    return `<button class="lesson" data-b="${i}"><span class="l-t"><b>${b.name}</b><small>${b.units.length} 個單元</small></span><em class="sem">${done} / ${total}</em></button>`;
+  }).join('')}</div>`);
+  document.querySelectorAll('[data-b]').forEach(x => x.onclick = () => viewQuizUnits(books[+x.dataset.b]));
+}
+function viewQuizUnits(b) {
+  quizShell(b.name, viewQuizBooks, `<div class="q-units">${b.units.map((U, i) => `<div class="q-unit"><b>${nums(`${U.u}. ${U.title}`)}</b><small>${esc(U.sense)}</small><div class="q-lv">${Object.keys(QUIZ_LV).map(l => { const best = quizBest(`${b.id}-${U.u}-${l}`); return `<button data-u="${i}" data-l="${l}"><span>${QUIZ_LV[l][0]}</span><small>${best === undefined ? `${QUIZ_LV[l][1]} 題` : `最佳 ${best} 分`}</small></button>`; }).join('')}</div></div>`).join('')}</div>`);
+  document.querySelectorAll('[data-u]').forEach(x => x.onclick = () => runQuiz(b, b.units[+x.dataset.u], x.dataset.l));
+}
+function runQuiz(b, U, lv, only) {
+  const all = U[lv], list = only || all.map((_, i) => i), wrong = [];
+  let i = 0, right = 0;
+  const back = () => viewQuizUnits(b);
+  function ask() {
+    const q = all[list[i]];
+    let tries = 0;
+    quizShell(`${QUIZ_LV[lv][0]}`, back, `<div class="q-bar"><i style="width:${i / list.length * 100}%"></i></div><div class="trail">${nums(`第 ${i + 1} 題，共 ${list.length} 題`)}</div>
+      <div class="prompt" id="prompt">${nums(esc(q.q))}</div>${q.pic ? `<div class="q-pic">${esc(q.pic)}</div>` : ''}<div class="msg" id="msg"></div><div class="actions" id="actions"></div>${q.t === 'num' ? `<div id="pad">${q.unit ? `<div class="trail">${esc(q.unit)}</div>` : ''}${keypadHtml()}</div>` : ''}`);
+    const done = ok => {
+      if (ok && tries === 0) { right++; S.stars += QUIZ_STAR; } else if (tries === 0 || !ok) wrong.push(list[i]);
+      save();
+      setMsg(`${ok ? (tries ? '對了。' : '答對了！') : '再看一次：'}${nums(esc(q.why))}`, ok ? 'good' : 'hint');
+      if (ok && tries === 0) sfx.good(); else if (ok) sfx.ok();
+      const pad = document.getElementById('pad'); if (pad) pad.style.display = 'none';
+      document.getElementById('actions').innerHTML = `<button class="btn" id="qn">${i + 1 < list.length ? '下一題' : '看成績'}</button>`;
+      document.getElementById('qn').onclick = () => { i++; if (i < list.length) ask(); else result(); };
+      reveal('#actions');
+    };
+    const miss2 = text => { tries++; sfx.retry(); if (tries >= 2) return done(false); setMsg(text, 'hint'); };
+    if (q.t === 'num') {
+      bindKeypad((val, clear) => {
+        if (val === q.a) return done(true);
+        clear(); miss2(nums(`你按的 ${val} 不對，再想想。`));
+      });
+    } else {
+      document.getElementById('actions').innerHTML = `<div class="choices col">${q.o.map((o, n) => `<button class="choice" data-c="${n}">${nums(esc(o))}</button>`).join('')}</div>`;
+      document.querySelectorAll('[data-c]').forEach(c => c.onclick = () => {
+        if (+c.dataset.c === q.a) return done(true);
+        c.classList.add('no'); c.disabled = true; miss2('再想想，換一個答案。');
+      });
+    }
+  }
+  function result() {
+    const score = Math.round(right / list.length * 100);
+    if (!only) { S.quiz = S.quiz || {}; const k = `${b.id}-${U.u}-${lv}`; S.quiz[k] = Math.max(S.quiz[k] || 0, score); save(); }
+    quizShell(`${QUIZ_LV[lv][0]}成績`, back, `<div class="end pop"><h2>${nums(`第一次就答對 ${right} / ${list.length} 題`)}</h2><p>${score === 100 ? '全部答對，太棒了！' : score >= 80 ? '很不錯，只差一點點。' : '沒關係，把錯的再做一次就會更熟。'}</p><div class="actions" id="ra"></div></div>`);
+    document.getElementById('ra').innerHTML = `${wrong.length ? '<button class="btn" id="rw">再做一次錯的</button>' : ''}<button class="btn alt" id="rb">回單元</button>`;
+    if (wrong.length) document.getElementById('rw').onclick = () => runQuiz(b, U, lv, wrong);
+    document.getElementById('rb').onclick = back;
+  }
+  ask();
+}
 /* ---------- 首頁 ---------- */
 let titleShown = false;
 function viewTitle() {
@@ -1399,6 +1463,7 @@ function viewHome() {
       <div class="hero-say">${artImg(S.bossDone ? 'liang_cheer' : 'liang', 'hero-liang')}<span>${line}</span></div>
     </header>
     <button class="lesson-entry" id="lessons"><span>📏🥛⚖️⏱️</span><b>單位教室</b><small>${Object.keys(S.learned || {}).length} / 5</small></button>
+    <button class="quiz-entry" id="quiz"><span>📝</span><b>單元測驗</b><small>基礎・進階・益智</small></button>
     <div class="map-trail" style="height:${ROW * rows + 8}px">
       <svg viewBox="0 0 100 ${ROW * rows}" preserveAspectRatio="none" aria-hidden="true"><path d="${pathD}" fill="none" stroke="#fff6e3" stroke-width="5" stroke-dasharray="3 11" stroke-linecap="round" vector-effect="non-scaling-stroke" opacity=".9"/></svg>
       ${keys.map(stop).join('')}
@@ -1415,6 +1480,7 @@ function viewHome() {
   document.querySelectorAll('[data-g]').forEach(b => b.onclick = () => enter(b.dataset.g));
   document.getElementById('daily').onclick = () => startRound('daily');
   document.getElementById('practice').onclick = viewPractice;
+  document.getElementById('quiz').onclick = viewQuizBooks;
   document.getElementById('clues').onclick = viewClues;
   document.getElementById('lessons').onclick = viewLessons;
 }
@@ -1459,7 +1525,7 @@ function viewParent() {
   </div>`;
   document.getElementById('snd').onchange = e => { S.sound = e.target.checked; save(); };
   document.getElementById('reset').onclick = () => {
-    if (confirm('確定清除所有星星和紀錄？')) { S.stars = 0; S.rec = {}; S.log = []; S.prog = {}; S.opened = false; S.bossDone = false; S.bossSeen = false; S.s2Seen = false; S.stamps = {}; S.fast = {}; S.learned = {}; save(); viewParent(); }
+    if (confirm('確定清除所有星星和紀錄？')) { S.stars = 0; S.rec = {}; S.log = []; S.prog = {}; S.opened = false; S.bossDone = false; S.bossSeen = false; S.s2Seen = false; S.stamps = {}; S.fast = {}; S.quiz = {}; S.learned = {}; save(); viewParent(); }
   };
   document.getElementById('out').onclick = () => go('');
 }
